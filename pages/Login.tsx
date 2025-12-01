@@ -50,7 +50,7 @@ const Login = () => {
             <CardTitle className="text-2xl text-center font-bold">Reset Password</CardTitle>
             <p className="text-center text-slate-500 text-sm">Enter your email to receive a reset link</p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             <form onSubmit={handleResetPassword} className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium leading-none" htmlFor="reset-email">
@@ -97,7 +97,7 @@ const Login = () => {
           <CardTitle className="text-2xl text-center font-bold">Welcome back</CardTitle>
           <p className="text-center text-slate-500 text-sm">Enter your credentials to access the dashboard</p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-0">
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium leading-none" htmlFor="email">

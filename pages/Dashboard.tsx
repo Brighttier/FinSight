@@ -1,9 +1,10 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { ArrowUpRight, ArrowDownRight, DollarSign, CreditCard, Activity, Target, Loader2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, DollarSign, CreditCard, Activity, Target, Loader2, AlertTriangle } from 'lucide-react';
 import { useCashFlow } from '../hooks/useTransactions';
 import { useSubscriptions } from '../hooks/useSubscriptions';
+import { useContractors } from '../hooks/useContractors';
 import { format } from 'date-fns';
 
 const formatCurrency = (value: number): string => {
@@ -97,6 +98,7 @@ const MetricCard = ({ title, value, change, trend, icon: Icon, loading, color }:
 const Dashboard = () => {
   const { cashFlow, totals, loading: cashFlowLoading } = useCashFlow(30);
   const { subscriptions, metrics: subMetrics, loading: subsLoading } = useSubscriptions({ realtime: true });
+  const { getExpiringContracts, loading: contractorsLoading } = useContractors({ realtime: true });
 
   // Format chart data for display
   const chartData = cashFlow.map((point) => ({
@@ -106,6 +108,9 @@ const Dashboard = () => {
 
   // Get upcoming bills (next 7 days)
   const upcomingBills = subMetrics.upcomingBills.slice(0, 3);
+
+  // Get contracts expiring within 30 days
+  const expiringContracts = getExpiringContracts(30);
 
   // Calculate annual run rate from profit
   const annualRunRate = totals.profit * 12;
@@ -155,7 +160,7 @@ const Dashboard = () => {
           <CardHeader>
             <CardTitle>Cash Flow Trend (30 Days)</CardTitle>
           </CardHeader>
-          <CardContent className="pl-2">
+          <CardContent className="pl-2 pt-0">
             <div className="h-[300px] w-full">
               {cashFlowLoading ? (
                 <div className="h-full flex items-center justify-center">
@@ -224,7 +229,7 @@ const Dashboard = () => {
           <CardHeader>
             <CardTitle>Intelligence & Alerts</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 space-y-6">
+          <CardContent className="flex-1 space-y-6 pt-0">
             <div className="space-y-3">
               <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">AI Insights</h4>
               {subMetrics.potentialSavings > 0 ? (
@@ -262,6 +267,55 @@ const Dashboard = () => {
                 </div>
               )}
             </div>
+
+            {/* Expiring Contracts Alert */}
+            {!contractorsLoading && expiringContracts.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Contract Alerts</h4>
+                <div className="space-y-2">
+                  {expiringContracts.slice(0, 3).map(({ assignment, daysLeft }) => (
+                    <div
+                      key={assignment.id}
+                      className={`flex gap-3 items-start p-3 rounded-lg border ${
+                        daysLeft <= 7
+                          ? 'bg-red-50 border-red-100'
+                          : daysLeft <= 14
+                          ? 'bg-amber-50 border-amber-100'
+                          : 'bg-orange-50 border-orange-100'
+                      }`}
+                    >
+                      <div
+                        className={`p-1.5 rounded-full ${
+                          daysLeft <= 7
+                            ? 'bg-red-100 text-red-600'
+                            : daysLeft <= 14
+                            ? 'bg-amber-100 text-amber-600'
+                            : 'bg-orange-100 text-orange-600'
+                        }`}
+                      >
+                        <AlertTriangle size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">
+                          {assignment.contractorName}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          Contract with {assignment.customerName} ends in{' '}
+                          <span className={daysLeft <= 7 ? 'font-semibold text-red-600' : 'font-medium'}>
+                            {daysLeft} day{daysLeft !== 1 ? 's' : ''}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {expiringContracts.length > 3 && (
+                    <p className="text-xs text-slate-500 text-center">
+                      +{expiringContracts.length - 3} more expiring soon
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3">
               <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Upcoming Bills</h4>

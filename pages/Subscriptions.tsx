@@ -1,10 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent } from '../components/ui/Card';
-import { AlertTriangle, Plus, Loader2, Pencil, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Plus, Loader2, Pencil, Trash2, X, CreditCard, TrendingUp, Tag } from 'lucide-react';
 import { useSubscriptions } from '../hooks/useSubscriptions';
+import { autoAssignCategories } from '../services/subscriptionCategoryService';
 import type { SubscriptionInput } from '../types';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+
+const SUBSCRIPTION_CATEGORIES = [
+  'Software',
+  'Cloud & Infrastructure',
+  'Marketing',
+  'Communication',
+  'Productivity',
+  'Design',
+  'Development',
+  'Analytics',
+  'Security',
+  'Finance',
+  'HR & Payroll',
+  'Other',
+] as const;
 
 const vendorColors: Record<string, { bg: string; text: string }> = {
   Adobe: { bg: 'bg-red-100', text: 'text-red-600' },
@@ -45,13 +61,54 @@ const Subscriptions = () => {
   const [cost, setCost] = useState('');
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [nextBillingDate, setNextBillingDate] = useState('');
+  const [category, setCategory] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Auto-assign categories on first load
+  const hasAutoAssigned = useRef(false);
+  useEffect(() => {
+    if (!loading && subscriptions.length > 0 && !hasAutoAssigned.current) {
+      hasAutoAssigned.current = true;
+      const uncategorized = subscriptions.filter((s) => !s.category);
+      if (uncategorized.length > 0) {
+        autoAssignCategories(subscriptions).then((count) => {
+          if (count > 0) {
+            toast.success(`Auto-assigned categories to ${count} subscription${count > 1 ? 's' : ''}`);
+          }
+        });
+      }
+    }
+  }, [loading, subscriptions]);
+
+  // Calculate spending by category
+  const categoryBreakdown = useMemo(() => {
+    const breakdown: Record<string, { count: number; monthly: number }> = {};
+
+    subscriptions
+      .filter((s) => s.status === 'active')
+      .forEach((sub) => {
+        const cat = sub.category || 'Uncategorized';
+        if (!breakdown[cat]) {
+          breakdown[cat] = { count: 0, monthly: 0 };
+        }
+        breakdown[cat].count++;
+        // Convert annual to monthly for consistent display
+        const monthlyAmount = sub.billingCycle === 'annual' ? sub.cost / 12 : sub.cost;
+        breakdown[cat].monthly += monthlyAmount;
+      });
+
+    // Sort by monthly spend descending
+    return Object.entries(breakdown)
+      .map(([category, data]) => ({ category, ...data }))
+      .sort((a, b) => b.monthly - a.monthly);
+  }, [subscriptions]);
 
   const resetForm = () => {
     setVendor('');
     setCost('');
     setBillingCycle('monthly');
     setNextBillingDate('');
+    setCategory('');
     setNotes('');
     setEditingId(null);
     setShowForm(false);
@@ -73,6 +130,7 @@ const Subscriptions = () => {
       billingCycle,
       nextBillingDate,
       status: 'active',
+      category: category || undefined,
       notes: notes.trim() || undefined,
     };
 
@@ -96,6 +154,7 @@ const Subscriptions = () => {
     setCost(sub.cost.toString());
     setBillingCycle(sub.billingCycle);
     setNextBillingDate(sub.nextBillingDate);
+    setCategory(sub.category || '');
     setNotes(sub.notes || '');
     setEditingId(sub.id);
     setShowForm(true);
@@ -119,20 +178,78 @@ const Subscriptions = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold tracking-tight text-slate-900">Subscriptions</h2>
-        <div className="flex items-center gap-4">
-          <div className="bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
-            <span className="text-sm text-slate-500">Monthly Run Rate: </span>
-            <span className="font-bold text-slate-900">{formatCurrency(metrics.monthlyTotal)}</span>
-          </div>
-          <button
-            onClick={() => setShowForm(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-          >
-            <Plus size={16} />
-            Add Subscription
-          </button>
-        </div>
+        <button
+          onClick={() => setShowForm(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+        >
+          <Plus size={16} />
+          Add Subscription
+        </button>
       </div>
+
+      {/* KPI Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="bg-indigo-50 border-indigo-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-100 p-2 rounded-lg">
+                <CreditCard className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Active Subscriptions</p>
+                <p className="text-2xl font-bold text-indigo-700">{metrics.activeCount}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-100 p-2 rounded-lg">
+                <TrendingUp className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Monthly Run Rate</p>
+                <p className="text-2xl font-bold text-blue-700">{formatCurrency(metrics.monthlyTotal)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-purple-50 border-purple-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-purple-100 p-2 rounded-lg">
+                <Tag className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Annual Cost</p>
+                <p className="text-2xl font-bold text-purple-700">{formatCurrency(metrics.annualTotal)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Category Breakdown */}
+      {categoryBreakdown.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="font-semibold text-slate-900 mb-3">Spending by Category</h3>
+            <div className="flex flex-wrap gap-3">
+              {categoryBreakdown.map(({ category, count, monthly }) => (
+                <div
+                  key={category}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200"
+                >
+                  <span className="text-sm font-medium text-slate-700">{category}</span>
+                  <span className="text-xs text-slate-500">({count})</span>
+                  <span className="text-sm font-bold text-slate-900">{formatCurrency(monthly)}/mo</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add/Edit Form */}
       {showForm && (
@@ -176,7 +293,7 @@ const Subscriptions = () => {
                   </div>
                 </div>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Billing Cycle</label>
                   <select
@@ -186,6 +303,21 @@ const Subscriptions = () => {
                   >
                     <option value="monthly">Monthly</option>
                     <option value="annual">Annual</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Category</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Select category...</option>
+                    {SUBSCRIPTION_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -262,7 +394,14 @@ const Subscriptions = () => {
                       {sub.vendor[0].toUpperCase()}
                     </div>
                     <div>
-                      <h3 className="font-semibold text-slate-900">{sub.vendor}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-slate-900">{sub.vendor}</h3>
+                        {sub.category && (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs font-medium rounded">
+                            {sub.category}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-slate-500">
                         Next billing: {format(new Date(sub.nextBillingDate), 'MMM d, yyyy')} •{' '}
                         {sub.billingCycle}
@@ -318,34 +457,6 @@ const Subscriptions = () => {
               </Card>
             );
           })}
-        </div>
-      )}
-
-      {/* Summary */}
-      {subscriptions.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-slate-500">Active Subscriptions</p>
-              <p className="text-2xl font-bold text-slate-900">{metrics.activeCount}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-slate-500">Annual Cost</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {formatCurrency(metrics.annualTotal)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-sm text-slate-500">Potential Savings</p>
-              <p className="text-2xl font-bold text-emerald-600">
-                {formatCurrency(metrics.potentialSavings)}/yr
-              </p>
-            </CardContent>
-          </Card>
         </div>
       )}
     </div>

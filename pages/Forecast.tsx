@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import {
   AreaChart,
@@ -8,24 +8,34 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  LineChart,
+  Line,
+  Legend,
 } from 'recharts';
-import { Sparkles, BrainCircuit, TrendingUp, AlertTriangle, Loader2 } from 'lucide-react';
+import { Sparkles, BrainCircuit, TrendingUp, AlertTriangle, Loader2, Users } from 'lucide-react';
 import { useTransactions } from '../hooks/useTransactions';
+import { useContractors } from '../hooks/useContractors';
 import { generateForecast, ForecastResult } from '../services/geminiService';
 import { PageLoader, EmptyState } from '../components/ui/Loading';
 import toast from 'react-hot-toast';
+import { format } from 'date-fns';
 
 type ScenarioType = 'base' | 'optimistic' | 'conservative';
 
 const Forecast = () => {
   const { transactions, loading: transactionsLoading } = useTransactions({ realtime: true });
+  const { projectFutureRevenue, calculateMetrics: calcContractorMetrics, loading: contractorsLoading } = useContractors({ realtime: true });
   const [isGenerating, setIsGenerating] = useState(false);
   const [scenario, setScenario] = useState<ScenarioType>('base');
   const [forecastData, setForecastData] = useState<ForecastResult['data'] | null>(null);
   const [hasGenerated, setHasGenerated] = useState(false);
 
+  // Get contractor projections
+  const contractorForecast = useMemo(() => projectFutureRevenue(6), [projectFutureRevenue]);
+  const currentContractorMetrics = useMemo(() => calcContractorMetrics(), [calcContractorMetrics]);
+
   // Calculate metrics from transactions
-  const calculateMetrics = () => {
+  const calculateTransactionMetrics = () => {
     const now = new Date();
     const threeMonthsAgo = new Date(now);
     threeMonthsAgo.setMonth(now.getMonth() - 3);
@@ -64,6 +74,35 @@ const Forecast = () => {
     };
   };
 
+  // Combine AI forecast with contractor projections
+  const getCombinedChartData = () => {
+    if (!forecastData) return [];
+
+    const scenarioData =
+      scenario === 'base'
+        ? forecastData.baseCase
+        : scenario === 'optimistic'
+        ? forecastData.optimistic
+        : forecastData.conservative;
+
+    return scenarioData.map((point, index) => {
+      const conservative = forecastData.conservative[index];
+      const optimistic = forecastData.optimistic[index];
+      const contractorData = contractorForecast[index];
+
+      return {
+        month: new Date(point.month + '-01').toLocaleDateString('en-US', { month: 'short' }),
+        profit: point.profit + (contractorData?.projectedProfit || 0),
+        revenue: point.revenue + (contractorData?.projectedRevenue || 0),
+        expenses: point.expenses + (contractorData?.projectedCost || 0),
+        contractorRevenue: contractorData?.projectedRevenue || 0,
+        contractorProfit: contractorData?.projectedProfit || 0,
+        ci_low: (conservative?.profit || point.profit * 0.85) + (contractorData?.projectedProfit || 0) * 0.9,
+        ci_high: (optimistic?.profit || point.profit * 1.15) + (contractorData?.projectedProfit || 0) * 1.1,
+      };
+    });
+  };
+
   const handleGenerateForecast = async () => {
     setIsGenerating(true);
     try {
@@ -95,32 +134,17 @@ const Forecast = () => {
   }, [transactions.length, transactionsLoading]);
 
   const getChartData = () => {
-    if (!forecastData) return [];
-
-    const scenarioData =
-      scenario === 'base'
-        ? forecastData.baseCase
-        : scenario === 'optimistic'
-        ? forecastData.optimistic
-        : forecastData.conservative;
-
-    return scenarioData.map((point, index) => {
-      const conservative = forecastData.conservative[index];
-      const optimistic = forecastData.optimistic[index];
-      return {
-        month: new Date(point.month + '-01').toLocaleDateString('en-US', { month: 'short' }),
-        profit: point.profit,
-        revenue: point.revenue,
-        expenses: point.expenses,
-        ci_low: conservative?.profit || point.profit * 0.85,
-        ci_high: optimistic?.profit || point.profit * 1.15,
-      };
-    });
+    return getCombinedChartData();
   };
 
-  const metrics = calculateMetrics();
+  const metrics = calculateTransactionMetrics();
+  const isLoading = transactionsLoading || contractorsLoading;
 
-  if (transactionsLoading) {
+  // Calculate total projected contractor revenue for next 6 months
+  const totalContractorProjectedRevenue = contractorForecast.reduce((sum, m) => sum + m.projectedRevenue, 0);
+  const totalContractorProjectedProfit = contractorForecast.reduce((sum, m) => sum + m.projectedProfit, 0);
+
+  if (isLoading) {
     return <PageLoader message="Loading financial data..." />;
   }
 
@@ -176,7 +200,7 @@ const Forecast = () => {
           <CardHeader>
             <CardTitle>6-Month Projection</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             <div className="h-[350px] w-full relative">
               {isGenerating && (
                 <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center flex-col gap-3">
@@ -251,7 +275,7 @@ const Forecast = () => {
                 Key Metrics
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-0">
               <div className="p-3 bg-slate-50 rounded-lg">
                 <p className="text-xs text-slate-500 uppercase font-semibold">
                   Monthly Burn Rate
@@ -276,6 +300,44 @@ const Forecast = () => {
             </CardContent>
           </Card>
 
+          {/* Contractor Projections */}
+          {(totalContractorProjectedRevenue > 0 || currentContractorMetrics.activeAssignments > 0) && (
+            <Card className="border-blue-200 bg-blue-50/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-800">
+                  <Users className="w-5 h-5" />
+                  Contractor Projections
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-0">
+                <div className="p-2 bg-white rounded-lg">
+                  <p className="text-xs text-blue-600 uppercase font-semibold">
+                    Active Assignments
+                  </p>
+                  <p className="text-lg font-bold text-blue-900">
+                    {currentContractorMetrics.activeAssignments}
+                  </p>
+                </div>
+                <div className="p-2 bg-white rounded-lg">
+                  <p className="text-xs text-blue-600 uppercase font-semibold">
+                    6-Month Revenue Projection
+                  </p>
+                  <p className="text-lg font-bold text-blue-900">
+                    ${(totalContractorProjectedRevenue / 1000).toFixed(1)}K
+                  </p>
+                </div>
+                <div className="p-2 bg-white rounded-lg">
+                  <p className="text-xs text-emerald-600 uppercase font-semibold">
+                    6-Month Profit Projection
+                  </p>
+                  <p className="text-lg font-bold text-emerald-700">
+                    ${(totalContractorProjectedProfit / 1000).toFixed(1)}K
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* AI Insights */}
           {forecastData && forecastData.insights.length > 0 && (
             <Card>
@@ -285,7 +347,7 @@ const Forecast = () => {
                   AI Insights
                 </CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-slate-700 space-y-2">
+              <CardContent className="text-sm text-slate-700 space-y-2 pt-0">
                 {forecastData.insights.slice(0, 3).map((insight, i) => (
                   <p key={i}>• {insight}</p>
                 ))}
@@ -302,7 +364,7 @@ const Forecast = () => {
                   Recommendations
                 </CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-amber-900 space-y-2">
+              <CardContent className="text-sm text-amber-900 space-y-2 pt-0">
                 {forecastData.recommendations.slice(0, 3).map((rec, i) => (
                   <p key={i}>• {rec}</p>
                 ))}

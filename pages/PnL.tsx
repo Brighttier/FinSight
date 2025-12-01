@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Loader2, Download } from 'lucide-react';
 import { usePnL } from '../hooks/useTransactions';
+import { useContractors } from '../hooks/useContractors';
 import { format, startOfMonth, endOfMonth, subMonths, startOfYear } from 'date-fns';
 
 type DateRange = 'thisMonth' | 'lastMonth' | 'ytd';
@@ -17,6 +18,7 @@ const categoryLabels: Record<string, string> = {
   travel: 'Travel',
   utilities: 'Utilities',
   legal: 'Legal',
+  reimbursements: 'Reimbursements',
   other: 'Other',
 };
 
@@ -29,14 +31,16 @@ const categoryColors: Record<string, string> = {
   travel: '#10b981',
   utilities: '#f59e0b',
   legal: '#ec4899',
+  reimbursements: '#0ea5e9',
   other: '#64748b',
+  contractorServices: '#f97316',
 };
 
 const PnL = () => {
   const [dateRange, setDateRange] = useState<DateRange>('thisMonth');
 
   // Calculate date range
-  const { startDate, endDate, label } = useMemo(() => {
+  const { startDate, endDate, label, filterMonth, filterYear } = useMemo(() => {
     const now = new Date();
     switch (dateRange) {
       case 'thisMonth':
@@ -44,6 +48,8 @@ const PnL = () => {
           startDate: format(startOfMonth(now), 'yyyy-MM-dd'),
           endDate: format(endOfMonth(now), 'yyyy-MM-dd'),
           label: format(now, 'MMM yyyy'),
+          filterMonth: format(now, 'yyyy-MM'),
+          filterYear: format(now, 'yyyy'),
         };
       case 'lastMonth':
         const lastMonth = subMonths(now, 1);
@@ -51,34 +57,60 @@ const PnL = () => {
           startDate: format(startOfMonth(lastMonth), 'yyyy-MM-dd'),
           endDate: format(endOfMonth(lastMonth), 'yyyy-MM-dd'),
           label: format(lastMonth, 'MMM yyyy'),
+          filterMonth: format(lastMonth, 'yyyy-MM'),
+          filterYear: format(lastMonth, 'yyyy'),
         };
       case 'ytd':
         return {
           startDate: format(startOfYear(now), 'yyyy-MM-dd'),
           endDate: format(now, 'yyyy-MM-dd'),
           label: 'Year to Date',
+          filterMonth: undefined,
+          filterYear: format(now, 'yyyy'),
         };
     }
   }, [dateRange]);
 
   const { revenue, expenses, profit, expensesByCategory, loading } = usePnL(startDate, endDate);
+  const { timesheets, loading: contractorLoading, calculateMetrics } = useContractors({ realtime: true });
 
-  // Prepare expense breakdown data for chart
+  // Calculate contractor metrics for the selected period
+  const contractorMetrics = useMemo(() => {
+    if (dateRange === 'ytd') {
+      return calculateMetrics(undefined, undefined, filterYear);
+    }
+    return calculateMetrics(filterMonth);
+  }, [calculateMetrics, dateRange, filterMonth, filterYear]);
+
+  // Combined totals including contractor services
+  const totalRevenue = revenue + contractorMetrics.totalRevenue;
+  const totalExpenses = expenses + contractorMetrics.totalCost;
+  const totalProfit = totalRevenue - totalExpenses;
+
+  // Prepare expense breakdown data for chart (including contractor costs)
+  const combinedExpenses = useMemo(() => {
+    const combined = { ...expensesByCategory };
+    if (contractorMetrics.totalCost > 0) {
+      combined['contractorServices'] = (combined['contractorServices'] || 0) + contractorMetrics.totalCost;
+    }
+    return combined;
+  }, [expensesByCategory, contractorMetrics.totalCost]);
+
   const expenseData = useMemo(() => {
-    return Object.entries(expensesByCategory)
+    return Object.entries(combinedExpenses)
       .map(([category, value]) => ({
-        name: categoryLabels[category] || category,
+        name: category === 'contractorServices' ? 'Contractor Services' : (categoryLabels[category] || category),
         value,
         category,
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 6);
-  }, [expensesByCategory]);
+  }, [combinedExpenses]);
 
   // Calculate percentages
   const revenuePercent = 100;
-  const expensePercent = revenue > 0 ? ((expenses / revenue) * 100).toFixed(1) : 0;
-  const profitPercent = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : 0;
+  const expensePercent = totalRevenue > 0 ? ((totalExpenses / totalRevenue) * 100).toFixed(1) : 0;
+  const profitPercent = totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : 0;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -92,14 +124,16 @@ const PnL = () => {
   const handleExport = () => {
     const csvData = [
       ['Category', 'Amount', '% of Revenue'],
-      ['Total Revenue', revenue.toString(), '100%'],
-      ['Total Expenses', expenses.toString(), `${expensePercent}%`],
-      ...Object.entries(expensesByCategory).map(([cat, val]) => [
-        categoryLabels[cat] || cat,
+      ['Total Revenue', totalRevenue.toString(), '100%'],
+      ['  - Other Revenue', revenue.toString(), totalRevenue > 0 ? `${((revenue / totalRevenue) * 100).toFixed(1)}%` : '0%'],
+      ['  - Contractor Services Revenue', contractorMetrics.totalRevenue.toString(), totalRevenue > 0 ? `${((contractorMetrics.totalRevenue / totalRevenue) * 100).toFixed(1)}%` : '0%'],
+      ['Total Expenses', totalExpenses.toString(), `${expensePercent}%`],
+      ...Object.entries(combinedExpenses).map(([cat, val]) => [
+        cat === 'contractorServices' ? 'Contractor Services (Cost)' : (categoryLabels[cat] || cat),
         val.toString(),
-        revenue > 0 ? `${((val / revenue) * 100).toFixed(1)}%` : '0%',
+        totalRevenue > 0 ? `${((val / totalRevenue) * 100).toFixed(1)}%` : '0%',
       ]),
-      ['Net Profit', profit.toString(), `${profitPercent}%`],
+      ['Net Profit', totalProfit.toString(), `${profitPercent}%`],
     ];
 
     const csv = csvData.map((row) => row.join(',')).join('\n');
@@ -110,6 +144,8 @@ const PnL = () => {
     a.download = `pnl-${startDate}-to-${endDate}.csv`;
     a.click();
   };
+
+  const isLoading = loading || contractorLoading;
 
   return (
     <div className="space-y-6">
@@ -158,7 +194,7 @@ const PnL = () => {
         </div>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
@@ -172,8 +208,8 @@ const PnL = () => {
             <CardHeader>
               <CardTitle>Statement Details - {label}</CardTitle>
             </CardHeader>
-            <CardContent>
-              {revenue === 0 && expenses === 0 ? (
+            <CardContent className="pt-0">
+              {totalRevenue === 0 && totalExpenses === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-slate-500">No transactions for this period</p>
                   <p className="text-sm text-slate-400 mt-1">Add transactions to see your P&L</p>
@@ -193,10 +229,30 @@ const PnL = () => {
                       <tr className="bg-emerald-50/50">
                         <td className="px-4 py-3 font-bold text-slate-900">Total Revenue</td>
                         <td className="px-4 py-3 text-right font-bold text-emerald-600">
-                          {formatCurrency(revenue)}
+                          {formatCurrency(totalRevenue)}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-500">100%</td>
                       </tr>
+
+                      {/* Revenue breakdown */}
+                      {revenue > 0 && (
+                        <tr>
+                          <td className="px-8 py-2 text-slate-600">Other Revenue</td>
+                          <td className="px-4 py-2 text-right">{formatCurrency(revenue)}</td>
+                          <td className="px-4 py-2 text-right text-slate-400">
+                            {totalRevenue > 0 ? `${((revenue / totalRevenue) * 100).toFixed(1)}%` : '0%'}
+                          </td>
+                        </tr>
+                      )}
+                      {contractorMetrics.totalRevenue > 0 && (
+                        <tr>
+                          <td className="px-8 py-2 text-slate-600">Contractor Services Revenue</td>
+                          <td className="px-4 py-2 text-right">{formatCurrency(contractorMetrics.totalRevenue)}</td>
+                          <td className="px-4 py-2 text-right text-slate-400">
+                            {totalRevenue > 0 ? `${((contractorMetrics.totalRevenue / totalRevenue) * 100).toFixed(1)}%` : '0%'}
+                          </td>
+                        </tr>
+                      )}
 
                       <tr>
                         <td colSpan={3} className="h-4"></td>
@@ -206,22 +262,22 @@ const PnL = () => {
                       <tr className="bg-red-50/30">
                         <td className="px-4 py-3 font-semibold text-slate-800">Total Expenses</td>
                         <td className="px-4 py-3 text-right text-red-600">
-                          {formatCurrency(expenses)}
+                          {formatCurrency(totalExpenses)}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-500">{expensePercent}%</td>
                       </tr>
 
                       {/* Expense breakdown */}
-                      {Object.entries(expensesByCategory)
+                      {Object.entries(combinedExpenses)
                         .sort(([, a], [, b]) => b - a)
                         .map(([category, value]) => (
                           <tr key={category}>
                             <td className="px-8 py-2 text-slate-600">
-                              {categoryLabels[category] || category}
+                              {category === 'contractorServices' ? 'Contractor Services (Cost)' : (categoryLabels[category] || category)}
                             </td>
                             <td className="px-4 py-2 text-right">{formatCurrency(value)}</td>
                             <td className="px-4 py-2 text-right text-slate-400">
-                              {revenue > 0 ? `${((value / revenue) * 100).toFixed(1)}%` : '0%'}
+                              {totalRevenue > 0 ? `${((value / totalRevenue) * 100).toFixed(1)}%` : '0%'}
                             </td>
                           </tr>
                         ))}
@@ -230,15 +286,33 @@ const PnL = () => {
                         <td colSpan={3} className="h-4"></td>
                       </tr>
 
+                      {/* Contractor Profit Summary (if applicable) */}
+                      {contractorMetrics.totalRevenue > 0 && (
+                        <>
+                          <tr className="bg-blue-50/30">
+                            <td className="px-4 py-2 font-medium text-blue-800">Contractor Services Profit</td>
+                            <td className="px-4 py-2 text-right text-blue-600 font-medium">
+                              {formatCurrency(contractorMetrics.totalProfit)}
+                            </td>
+                            <td className="px-4 py-2 text-right text-blue-500">
+                              {contractorMetrics.profitMargin.toFixed(1)}% margin
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={3} className="h-4"></td>
+                          </tr>
+                        </>
+                      )}
+
                       {/* Net Profit */}
                       <tr className="bg-indigo-50 border-t-2 border-indigo-100">
                         <td className="px-4 py-4 font-bold text-indigo-900 text-lg">Net Profit</td>
                         <td
                           className={`px-4 py-4 text-right font-bold text-lg ${
-                            profit >= 0 ? 'text-indigo-700' : 'text-red-600'
+                            totalProfit >= 0 ? 'text-indigo-700' : 'text-red-600'
                           }`}
                         >
-                          {formatCurrency(profit)}
+                          {formatCurrency(totalProfit)}
                         </td>
                         <td className="px-4 py-4 text-right font-medium text-indigo-600">
                           {profitPercent}%
@@ -257,7 +331,7 @@ const PnL = () => {
               <CardHeader>
                 <CardTitle>Expense Breakdown</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 {expenseData.length === 0 ? (
                   <div className="text-center py-8">
                     <p className="text-slate-500">No expenses recorded</p>

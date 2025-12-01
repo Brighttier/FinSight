@@ -261,7 +261,7 @@ const ProfitShare = () => {
               <CardHeader>
                 <CardTitle className="text-indigo-200">Total Available Pool</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <div className="text-5xl font-bold mb-4">{formatCurrency(poolAmount)}</div>
                 <p className="text-indigo-200 text-sm">
                   {poolAmount > 0
@@ -294,7 +294,7 @@ const ProfitShare = () => {
               <CardHeader>
                 <CardTitle>Share Allocation</CardTitle>
               </CardHeader>
-              <CardContent className="h-[200px]">
+              <CardContent className="h-[200px] pt-0">
                 {partnersWithAmounts.length === 0 ? (
                   <div className="h-full flex items-center justify-center">
                     <p className="text-slate-500">Add partners to see allocation</p>
@@ -330,7 +330,7 @@ const ProfitShare = () => {
             <CardHeader>
               <CardTitle>Distribution Table</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0">
               {partnersWithAmounts.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-slate-500">No partners added yet</p>
@@ -426,7 +426,7 @@ const ProfitShare = () => {
               <CardHeader>
                 <CardTitle>Recent Distributions</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <div className="space-y-2">
                   {distributions.slice(0, 5).map((dist) => (
                     <div

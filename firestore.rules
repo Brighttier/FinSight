@@ -24,7 +24,7 @@ service cloud.firestore {
     // Helper function to validate subscription data
     function isValidSubscription() {
       let data = request.resource.data;
-      return data.keys().hasAll(['userId', 'name', 'cost', 'billingCycle', 'nextBillingDate', 'status'])
+      return data.keys().hasAll(['userId', 'vendor', 'cost', 'billingCycle', 'nextBillingDate', 'status'])
         && data.cost > 0
         && data.billingCycle in ['monthly', 'annual']
         && data.status in ['active', 'cancelled', 'paused'];
@@ -97,6 +97,38 @@ service cloud.firestore {
 
     // Forecasts collection
     match /forecasts/{forecastId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Customers collection (for contractor management)
+    match /customers/{customerId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Contractors collection
+    match /contractors/{contractorId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Contractor Assignments collection
+    match /assignments/{assignmentId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Contractor Timesheets collection
+    match /timesheets/{timesheetId} {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;

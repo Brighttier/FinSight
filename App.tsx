@@ -14,6 +14,7 @@ import Subscriptions from './pages/Subscriptions';
 import ProfitShare from './pages/ProfitShare';
 import Settings from './pages/Settings';
 import Receipts from './pages/Receipts';
+import Contractors from './pages/Contractors';
 
 const App: React.FC = () => {
   return (
@@ -38,6 +39,7 @@ const App: React.FC = () => {
                     <Route path="/subscriptions" element={<Subscriptions />} />
                     <Route path="/profit-share" element={<ProfitShare />} />
                     <Route path="/receipts" element={<Receipts />} />
+                    <Route path="/contractors" element={<Contractors />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>

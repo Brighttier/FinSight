@@ -9,7 +9,8 @@ import {
   Settings,
   LogOut,
   Landmark,
-  PlusCircle
+  PlusCircle,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -88,6 +89,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
             <SidebarItem to="/costs/new" icon={PlusCircle} label="Manual Entry" />
             <SidebarItem to="/subscriptions" icon={CreditCard} label="Subscriptions" />
+            <SidebarItem to="/contractors" icon={Users} label="Contractors" />
             <SidebarItem to="/profit-share" icon={Landmark} label="Profit Share" />
             <SidebarItem to="/receipts" icon={Receipt} label="Receipts" />
           </nav>

@@ -37,6 +37,24 @@ service firebase.storage {
       allow delete: if isAuthenticated() && isOwner(userId);
     }
 
+    // Contract files storage rules
+    match /contracts/{userId}/{allPaths=**} {
+      // Allow read if authenticated and owner
+      allow read: if isAuthenticated() && isOwner(userId);
+
+      // Allow write if authenticated, owner, valid size and type (PDF, DOC, DOCX, images)
+      allow write: if isAuthenticated()
+                   && isOwner(userId)
+                   && isValidSize()
+                   && (request.resource.contentType.matches('image/.*')
+                       || request.resource.contentType == 'application/pdf'
+                       || request.resource.contentType == 'application/msword'
+                       || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+      // Allow delete if authenticated and owner
+      allow delete: if isAuthenticated() && isOwner(userId);
+    }
+
     // Default deny all other paths
     match /{allPaths=**} {
       allow read, write: if false;

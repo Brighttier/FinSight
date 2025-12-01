@@ -214,7 +214,7 @@ const Settings = () => {
               <User size={20} /> Profile
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-0">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-2xl font-bold text-indigo-600">
                 {user?.name?.[0]?.toUpperCase() || 'U'}
@@ -274,7 +274,7 @@ const Settings = () => {
               <Lock size={20} /> Account Security
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 pt-0">
             {/* Change Email */}
             {!googleUser && (
               <>
@@ -446,7 +446,7 @@ const Settings = () => {
               <Link2 size={20} /> Data Connections
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-0">
             <div className="flex items-center justify-between p-3 border border-slate-200 rounded-lg">
               <div>
                 <div className="font-medium">Bank Feeds (Plaid)</div>
@@ -475,7 +475,7 @@ const Settings = () => {
               <Database size={20} /> Data Management
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-0">
             {/* Import Section */}
             <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
               <div className="flex items-center gap-2 text-indigo-700 font-medium mb-2">
