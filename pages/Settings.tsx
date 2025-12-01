@@ -3,9 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import {
   Link2,
   Database,
-  Users,
   User,
   Download,
+  Upload,
   Loader2,
   Lock,
   Mail,
@@ -14,7 +14,8 @@ import {
   Check,
   X,
   AlertTriangle,
-  Shield
+  Shield,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTransactions } from '../hooks/useTransactions';
@@ -27,6 +28,7 @@ import {
   isGoogleUser,
   getAuthErrorMessage,
 } from '../services/authService';
+import ImportDataModal from '../components/ImportDataModal';
 import toast from 'react-hot-toast';
 
 const Settings = () => {
@@ -59,6 +61,9 @@ const Settings = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  // Import modal state
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const googleUser = isGoogleUser();
 
@@ -471,6 +476,25 @@ const Settings = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Import Section */}
+            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <div className="flex items-center gap-2 text-indigo-700 font-medium mb-2">
+                <FileSpreadsheet size={16} />
+                Bulk Import from Excel
+              </div>
+              <p className="text-xs text-indigo-600 mb-3">
+                Download a template, fill in your data, and upload to import transactions, subscriptions, or partners in bulk.
+              </p>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
+              >
+                <Upload size={14} />
+                Import from Excel
+              </button>
+            </div>
+
+            {/* Export Section */}
             <div className="grid gap-3">
               <button
                 onClick={handleExportCSV}
@@ -497,6 +521,13 @@ const Settings = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Import Modal */}
+      <ImportDataModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={() => {}}
+      />
 
       {/* App Info */}
       <Card>
