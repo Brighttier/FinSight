@@ -63,10 +63,10 @@ const MetricCard = ({ title, value, change, trend, icon: Icon, loading, color }:
   const styles = colorStyles[color];
 
   return (
-    <Card className={`${styles.bg} ${styles.border} border`}>
-      <CardContent className="p-5">
-        <div className="flex items-center gap-4">
-          <div className={`${styles.iconBg} p-3 rounded-xl`}>
+    <div className={`${styles.bg} ${styles.border} border rounded-xl shadow-sm`}>
+      <div className="p-5 flex items-center min-h-[100px]">
+        <div className="flex items-center gap-4 w-full">
+          <div className={`${styles.iconBg} p-3 rounded-xl flex-shrink-0`}>
             <Icon className={`h-6 w-6 ${styles.iconColor}`} />
           </div>
           <div className="flex-1 min-w-0">
@@ -89,8 +89,8 @@ const MetricCard = ({ title, value, change, trend, icon: Icon, loading, color }:
             )}
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };
 
