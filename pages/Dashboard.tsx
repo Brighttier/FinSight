@@ -16,31 +16,79 @@ const formatCurrency = (value: number): string => {
   return `$${value.toFixed(0)}`;
 };
 
-const MetricCard = ({ title, value, change, trend, icon: Icon, loading }: any) => {
+interface MetricCardProps {
+  title: string;
+  value: string;
+  change?: string;
+  trend: 'up' | 'down';
+  icon: React.ElementType;
+  loading?: boolean;
+  color: 'green' | 'red' | 'blue' | 'purple';
+}
+
+const MetricCard = ({ title, value, change, trend, icon: Icon, loading, color }: MetricCardProps) => {
   const isPositive = trend === 'up';
+
+  const colorStyles = {
+    green: {
+      bg: 'bg-emerald-50',
+      border: 'border-emerald-200',
+      iconBg: 'bg-emerald-100',
+      iconColor: 'text-emerald-600',
+      valueColor: 'text-emerald-700',
+    },
+    red: {
+      bg: 'bg-red-50',
+      border: 'border-red-200',
+      iconBg: 'bg-red-100',
+      iconColor: 'text-red-600',
+      valueColor: 'text-red-700',
+    },
+    blue: {
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      iconBg: 'bg-blue-100',
+      iconColor: 'text-blue-600',
+      valueColor: 'text-blue-700',
+    },
+    purple: {
+      bg: 'bg-purple-50',
+      border: 'border-purple-200',
+      iconBg: 'bg-purple-100',
+      iconColor: 'text-purple-600',
+      valueColor: 'text-purple-700',
+    },
+  };
+
+  const styles = colorStyles[color];
+
   return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between space-y-0 pb-2">
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <Icon className="h-4 w-4 text-slate-400" />
-        </div>
-        {loading ? (
-          <div className="flex items-center gap-2 mt-2">
-            <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-            <span className="text-slate-400 text-sm">Loading...</span>
+    <Card className={`${styles.bg} ${styles.border} border`}>
+      <CardContent className="p-5">
+        <div className="flex items-center gap-4">
+          <div className={`${styles.iconBg} p-3 rounded-xl`}>
+            <Icon className={`h-6 w-6 ${styles.iconColor}`} />
           </div>
-        ) : (
-          <div className="flex items-baseline space-x-2">
-            <div className="text-2xl font-bold">{value}</div>
-            {change && (
-              <span className={`text-xs font-medium ${isPositive ? 'text-emerald-500' : 'text-red-500'} flex items-center`}>
-                {isPositive ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
-                {change}
-              </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-slate-600 truncate">{title}</p>
+            {loading ? (
+              <div className="flex items-center gap-2 mt-1">
+                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                <span className="text-slate-400 text-sm">Loading...</span>
+              </div>
+            ) : (
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className={`text-2xl font-bold ${styles.valueColor}`}>{value}</span>
+                {change && (
+                  <span className={`text-xs font-medium flex items-center ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                    {change}
+                  </span>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -72,6 +120,7 @@ const Dashboard = () => {
           trend="up"
           icon={DollarSign}
           loading={cashFlowLoading}
+          color="green"
         />
         <MetricCard
           title="Expenses"
@@ -79,6 +128,7 @@ const Dashboard = () => {
           trend="down"
           icon={CreditCard}
           loading={cashFlowLoading}
+          color="red"
         />
         <MetricCard
           title="Net Profit"
@@ -86,6 +136,7 @@ const Dashboard = () => {
           trend={totals.profit >= 0 ? 'up' : 'down'}
           icon={Activity}
           loading={cashFlowLoading}
+          color="blue"
         />
         <MetricCard
           title="Monthly Subscriptions"
@@ -94,6 +145,7 @@ const Dashboard = () => {
           trend="up"
           icon={Target}
           loading={subsLoading}
+          color="purple"
         />
       </div>
 
