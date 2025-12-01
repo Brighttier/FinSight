@@ -1,0 +1,25 @@
+# Firebase App Hosting configuration
+# https://firebase.google.com/docs/app-hosting
+
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 80
+
+env:
+  - variable: VITE_FIREBASE_API_KEY
+    secret: firebase-api-key
+  - variable: VITE_FIREBASE_AUTH_DOMAIN
+    value: velo-479115.firebaseapp.com
+  - variable: VITE_FIREBASE_PROJECT_ID
+    value: velo-479115
+  - variable: VITE_FIREBASE_STORAGE_BUCKET
+    value: velo-479115.firebasestorage.app
+  - variable: VITE_FIREBASE_MESSAGING_SENDER_ID
+    value: "341467003750"
+  - variable: VITE_FIREBASE_APP_ID
+    value: 1:341467003750:web:cde4c7ffc428b647d166a7
+  - variable: VITE_FIREBASE_MEASUREMENT_ID
+    value: G-T7FGHZGETP
+  - variable: VITE_GEMINI_API_KEY
+    secret: gemini-api-key

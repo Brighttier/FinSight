@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FinSight</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            colors: {
+              border: "hsl(var(--border))",
+              input: "hsl(var(--input))",
+              ring: "hsl(var(--ring))",
+              background: "hsl(var(--background))",
+              foreground: "hsl(var(--foreground))",
+              primary: {
+                DEFAULT: "#6366f1", // Indigo 500
+                foreground: "#ffffff",
+              },
+              secondary: {
+                DEFAULT: "#f1f5f9", // Slate 100
+                foreground: "#0f172a",
+              },
+              destructive: {
+                DEFAULT: "#ef4444", // Red 500
+                foreground: "#ffffff",
+              },
+              muted: {
+                DEFAULT: "#f8fafc", // Slate 50
+                foreground: "#64748b", // Slate 500
+              },
+              accent: {
+                DEFAULT: "#f1f5f9",
+                foreground: "#0f172a",
+              },
+              card: {
+                DEFAULT: "#ffffff",
+                foreground: "#020817",
+              },
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        background-color: #f8fafc;
+        color: #0f172a;
+      }
+      /* Custom Scrollbar for sleek look */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8; 
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "firebase/app": "https://aistudiocdn.com/firebase@^11.0.0/app",
+    "firebase/auth": "https://aistudiocdn.com/firebase@^11.0.0/auth",
+    "firebase/firestore": "https://aistudiocdn.com/firebase@^11.0.0/firestore",
+    "firebase/storage": "https://aistudiocdn.com/firebase@^11.0.0/storage",
+    "firebase/analytics": "https://aistudiocdn.com/firebase@^11.0.0/analytics",
+    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.4.1",
+    "date-fns": "https://aistudiocdn.com/date-fns@^3.6.0",
+    "zod": "https://aistudiocdn.com/zod@^3.23.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

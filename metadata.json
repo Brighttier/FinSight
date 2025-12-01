@@ -1,0 +1,7 @@
+{
+  "name": "FinSight",
+  "description": "Internal financial intelligence dashboard for startup management featuring P&L, forecasting, and subscription tracking.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
