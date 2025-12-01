@@ -6,7 +6,6 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import PnL from './pages/PnL';
 import ManualEntry from './pages/ManualEntry';
@@ -24,7 +23,6 @@ const App: React.FC = () => {
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Login />} />
-          <Route path="/register" element={<Register />} />
 
           {/* Protected Routes */}
           <Route
