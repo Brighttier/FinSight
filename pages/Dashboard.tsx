@@ -69,7 +69,6 @@ const Dashboard = () => {
         <MetricCard
           title="Total Revenue"
           value={formatCurrency(totals.revenue)}
-          change={totals.revenue > 0 ? '+12.5%' : undefined}
           trend="up"
           icon={DollarSign}
           loading={cashFlowLoading}
@@ -77,7 +76,6 @@ const Dashboard = () => {
         <MetricCard
           title="Expenses"
           value={formatCurrency(totals.expenses)}
-          change={totals.expenses > 0 ? '+4.3%' : undefined}
           trend="down"
           icon={CreditCard}
           loading={cashFlowLoading}
@@ -85,7 +83,6 @@ const Dashboard = () => {
         <MetricCard
           title="Net Profit"
           value={formatCurrency(totals.profit)}
-          change={totals.profit > 0 ? '+18.2%' : undefined}
           trend={totals.profit >= 0 ? 'up' : 'down'}
           icon={Activity}
           loading={cashFlowLoading}
