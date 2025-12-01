@@ -20,7 +20,7 @@ import {
   downloadTemplate,
 } from '../services/excelService';
 import { useAuth } from '../contexts/AuthContext';
-import { addTransaction, addSubscription, addPartner } from '../services/firestoreService';
+import { createTransaction, createSubscription, createPartner } from '../services/firestoreService';
 import toast from 'react-hot-toast';
 
 type ImportType = 'transactions' | 'subscriptions' | 'partners';
@@ -99,7 +99,7 @@ export default function ImportDataModal({ isOpen, onClose, onSuccess }: ImportDa
   };
 
   const handleImport = async () => {
-    if (!previewData || previewData.length === 0) {
+    if (!previewData || previewData.length === 0 || !user) {
       toast.error('No valid data to import');
       return;
     }
@@ -110,15 +110,16 @@ export default function ImportDataModal({ isOpen, onClose, onSuccess }: ImportDa
       let successCount = 0;
 
       for (const item of previewData) {
+        const { userId, ...data } = item;
         switch (importType) {
           case 'transactions':
-            await addTransaction(item);
+            await createTransaction(user.uid, data);
             break;
           case 'subscriptions':
-            await addSubscription(item);
+            await createSubscription(user.uid, data);
             break;
           case 'partners':
-            await addPartner(item);
+            await createPartner(user.uid, data);
             break;
         }
         successCount++;
