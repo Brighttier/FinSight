@@ -4,12 +4,17 @@ import {
   signOut as firebaseSignOut,
   sendPasswordResetEmail,
   updateProfile,
+  updatePassword,
+  updateEmail,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  deleteUser,
   onAuthStateChanged,
   User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import type { User } from '../types';
 
@@ -129,6 +134,77 @@ export function subscribeToAuthChanges(
   return onAuthStateChanged(auth, callback);
 }
 
+// Update user profile (name)
+export async function updateUserProfile(name: string): Promise<void> {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) throw new Error('No authenticated user');
+
+  await updateProfile(firebaseUser, { displayName: name });
+  await updateDoc(doc(db, 'users', firebaseUser.uid), {
+    name,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// Update user email
+export async function updateUserEmail(
+  newEmail: string,
+  currentPassword: string
+): Promise<void> {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser || !firebaseUser.email) throw new Error('No authenticated user');
+
+  // Re-authenticate before sensitive operation
+  const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
+  await reauthenticateWithCredential(firebaseUser, credential);
+
+  await updateEmail(firebaseUser, newEmail);
+  await updateDoc(doc(db, 'users', firebaseUser.uid), {
+    email: newEmail,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// Update user password
+export async function updateUserPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser || !firebaseUser.email) throw new Error('No authenticated user');
+
+  // Re-authenticate before sensitive operation
+  const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
+  await reauthenticateWithCredential(firebaseUser, credential);
+
+  await updatePassword(firebaseUser, newPassword);
+}
+
+// Delete user account
+export async function deleteUserAccount(currentPassword: string): Promise<void> {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser || !firebaseUser.email) throw new Error('No authenticated user');
+
+  // Re-authenticate before sensitive operation
+  const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
+  await reauthenticateWithCredential(firebaseUser, credential);
+
+  // Delete user document from Firestore
+  await deleteDoc(doc(db, 'users', firebaseUser.uid));
+
+  // Delete the Firebase Auth user
+  await deleteUser(firebaseUser);
+}
+
+// Check if user signed in with Google (can't change password)
+export function isGoogleUser(): boolean {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) return false;
+  return firebaseUser.providerData.some(
+    (provider) => provider.providerId === 'google.com'
+  );
+}
+
 // Get Firebase error message
 export function getAuthErrorMessage(errorCode: string): string {
   switch (errorCode) {
@@ -152,6 +228,8 @@ export function getAuthErrorMessage(errorCode: string): string {
       return 'Too many failed attempts. Please try again later.';
     case 'auth/popup-closed-by-user':
       return 'Sign-in popup was closed before completing.';
+    case 'auth/requires-recent-login':
+      return 'Please sign out and sign in again to perform this action.';
     default:
       return 'An error occurred. Please try again.';
   }
