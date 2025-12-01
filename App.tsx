@@ -15,6 +15,7 @@ import ProfitShare from './pages/ProfitShare';
 import Settings from './pages/Settings';
 import Receipts from './pages/Receipts';
 import Contractors from './pages/Contractors';
+import Team from './pages/Team';
 
 const App: React.FC = () => {
   return (
@@ -40,6 +41,7 @@ const App: React.FC = () => {
                     <Route path="/profit-share" element={<ProfitShare />} />
                     <Route path="/receipts" element={<Receipts />} />
                     <Route path="/contractors" element={<Contractors />} />
+                    <Route path="/team" element={<Team />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>

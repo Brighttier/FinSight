@@ -11,6 +11,7 @@ import {
   Landmark,
   PlusCircle,
   Users,
+  UserCircle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -90,6 +91,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <SidebarItem to="/costs/new" icon={PlusCircle} label="Manual Entry" />
             <SidebarItem to="/subscriptions" icon={CreditCard} label="Subscriptions" />
             <SidebarItem to="/contractors" icon={Users} label="Contractors" />
+            <SidebarItem to="/team" icon={UserCircle} label="Team & Payroll" />
             <SidebarItem to="/profit-share" icon={Landmark} label="Profit Share" />
             <SidebarItem to="/receipts" icon={Receipt} label="Receipts" />
           </nav>

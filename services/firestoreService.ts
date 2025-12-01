@@ -33,6 +33,10 @@ import type {
   ContractorAssignmentInput,
   ContractorTimesheet,
   ContractorTimesheetInput,
+  TeamMember,
+  TeamMemberInput,
+  PayrollRecord,
+  PayrollRecordInput,
 } from '../types';
 
 // Helper to convert Firestore timestamps to Date
@@ -811,4 +815,190 @@ export async function updateTimesheet(
 
 export async function deleteTimesheet(id: string): Promise<void> {
   await deleteDoc(doc(db, 'timesheets', id));
+}
+
+// ============ TEAM MEMBERS ============
+
+export async function createTeamMember(
+  userId: string,
+  data: TeamMemberInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'teamMembers'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getTeamMembers(
+  userId: string,
+  status?: 'active' | 'inactive'
+): Promise<TeamMember[]> {
+  const q = query(
+    collection(db, 'teamMembers'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let members = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as TeamMember;
+  });
+
+  if (status) {
+    members = members.filter((m) => m.status === status);
+  }
+
+  return members.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function subscribeToTeamMembers(
+  userId: string,
+  callback: (members: TeamMember[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'teamMembers'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const members = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as TeamMember;
+      });
+      callback(members.sort((a, b) => a.name.localeCompare(b.name)));
+    },
+    (error) => {
+      console.error('Error subscribing to team members:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateTeamMember(
+  id: string,
+  data: Partial<TeamMemberInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'teamMembers', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteTeamMember(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'teamMembers', id));
+}
+
+// ============ PAYROLL RECORDS ============
+
+export async function createPayrollRecord(
+  userId: string,
+  data: PayrollRecordInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'payrollRecords'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getPayrollRecords(
+  userId: string,
+  options?: {
+    month?: string;
+    teamMemberId?: string;
+    status?: 'pending' | 'paid';
+  }
+): Promise<PayrollRecord[]> {
+  const q = query(
+    collection(db, 'payrollRecords'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let records = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as PayrollRecord;
+  });
+
+  if (options?.month) {
+    records = records.filter((r) => r.month === options.month);
+  }
+  if (options?.teamMemberId) {
+    records = records.filter((r) => r.teamMemberId === options.teamMemberId);
+  }
+  if (options?.status) {
+    records = records.filter((r) => r.status === options.status);
+  }
+
+  return records.sort((a, b) => b.month.localeCompare(a.month));
+}
+
+export function subscribeToPayrollRecords(
+  userId: string,
+  callback: (records: PayrollRecord[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'payrollRecords'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const records = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as PayrollRecord;
+      });
+      callback(records.sort((a, b) => b.month.localeCompare(a.month)));
+    },
+    (error) => {
+      console.error('Error subscribing to payroll records:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updatePayrollRecord(
+  id: string,
+  data: Partial<PayrollRecordInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'payrollRecords', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deletePayrollRecord(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'payrollRecords', id));
 }

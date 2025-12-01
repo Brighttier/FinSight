@@ -222,7 +222,46 @@ export interface ContractorTimesheet {
   updatedAt?: Date;
 }
 
+// ============ TEAM/PAYROLL MODULE ============
+
+export interface TeamMember {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: string;
+  department?: string;
+  monthlySalary: number;
+  currency: CurrencyCode;
+  startDate: string;
+  endDate?: string;
+  status: 'active' | 'inactive';
+  notes?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface PayrollRecord {
+  id: string;
+  userId: string;
+  teamMemberId: string;
+  teamMemberName: string;
+  month: string; // YYYY-MM format
+  baseSalary: number;
+  bonus?: number;
+  deductions?: number;
+  netAmount: number;
+  currency: CurrencyCode;
+  status: 'pending' | 'paid';
+  paidDate?: string;
+  notes?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 // Form input types (for creating/updating)
+export type TeamMemberInput = Omit<TeamMember, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type PayrollRecordInput = Omit<PayrollRecord, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type TransactionInput = Omit<Transaction, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type SubscriptionInput = Omit<Subscription, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type PartnerInput = Omit<Partner, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
