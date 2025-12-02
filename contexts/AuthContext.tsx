@@ -11,6 +11,7 @@ import {
   subscribeToAuthChanges,
   getAuthErrorMessage,
 } from '../services/authService';
+import { setupOwnerUser, OWNER_EMAIL } from '../scripts/setupOwner';
 
 interface AuthContextType {
   user: User | null;
@@ -39,6 +40,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (fbUser) {
         try {
+          // Check if this is the owner email and set up owner access
+          if (fbUser.email?.toLowerCase() === OWNER_EMAIL.toLowerCase()) {
+            try {
+              await setupOwnerUser(fbUser.uid);
+              console.log('Owner user setup complete');
+            } catch (setupErr) {
+              console.error('Error setting up owner user:', setupErr);
+            }
+          }
+
           const userData = await getCurrentUserData();
           setUser(userData);
         } catch (err) {
