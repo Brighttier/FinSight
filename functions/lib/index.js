@@ -10,16 +10,16 @@ const OWNER_EMAIL = 'akhare@brighttier.com';
  * Cloud Function to create a user in Firebase Auth and Firestore appUsers
  * Only callable by authenticated users with user_management permission
  */
-exports.createAppUser = functions.https.onCall(async (request) => {
+exports.createAppUser = functions.https.onCall(async (data, context) => {
     var _a, _b;
-    const { data, auth } = request;
     // Check if caller is authenticated
-    if (!auth) {
+    if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to create users');
     }
     // Check if caller is the owner (bypass appUsers check)
-    const callerEmail = (_a = auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+    const callerEmail = (_a = context.auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase();
     const isOwner = callerEmail === OWNER_EMAIL.toLowerCase();
+    console.log('createAppUser called by:', callerEmail, 'isOwner:', isOwner);
     if (!isOwner) {
         // Verify caller has permission (check their appUser record)
         const callerSnapshot = await admin.firestore()
@@ -95,15 +95,15 @@ exports.createAppUser = functions.https.onCall(async (request) => {
 /**
  * Cloud Function to delete a user from Firebase Auth
  */
-exports.deleteAppUser = functions.https.onCall(async (request) => {
+exports.deleteAppUser = functions.https.onCall(async (data, context) => {
     var _a, _b;
-    const { data, auth } = request;
-    if (!auth) {
+    if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to delete users');
     }
     // Check if caller is the owner (bypass appUsers check)
-    const callerEmail = (_a = auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+    const callerEmail = (_a = context.auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase();
     const isOwner = callerEmail === OWNER_EMAIL.toLowerCase();
+    console.log('deleteAppUser called by:', callerEmail, 'isOwner:', isOwner);
     if (!isOwner) {
         // Verify caller has full permission
         const callerSnapshot = await admin.firestore()
@@ -147,9 +147,8 @@ exports.deleteAppUser = functions.https.onCall(async (request) => {
 /**
  * Cloud Function to send password reset email
  */
-exports.sendPasswordReset = functions.https.onCall(async (request) => {
-    const { data, auth } = request;
-    if (!auth) {
+exports.sendPasswordReset = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'You must be logged in');
     }
     const { email } = data;

@@ -20,11 +20,9 @@ interface CreateUserData {
  * Cloud Function to create a user in Firebase Auth and Firestore appUsers
  * Only callable by authenticated users with user_management permission
  */
-export const createAppUser = functions.https.onCall(async (request) => {
-  const { data, auth } = request;
-
+export const createAppUser = functions.https.onCall(async (data, context) => {
   // Check if caller is authenticated
-  if (!auth) {
+  if (!context.auth) {
     throw new functions.https.HttpsError(
       'unauthenticated',
       'You must be logged in to create users'
@@ -32,8 +30,10 @@ export const createAppUser = functions.https.onCall(async (request) => {
   }
 
   // Check if caller is the owner (bypass appUsers check)
-  const callerEmail = auth.token.email?.toLowerCase();
+  const callerEmail = context.auth.token.email?.toLowerCase();
   const isOwner = callerEmail === OWNER_EMAIL.toLowerCase();
+
+  console.log('createAppUser called by:', callerEmail, 'isOwner:', isOwner);
 
   if (!isOwner) {
     // Verify caller has permission (check their appUser record)
@@ -135,10 +135,8 @@ export const createAppUser = functions.https.onCall(async (request) => {
 /**
  * Cloud Function to delete a user from Firebase Auth
  */
-export const deleteAppUser = functions.https.onCall(async (request) => {
-  const { data, auth } = request;
-
-  if (!auth) {
+export const deleteAppUser = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
     throw new functions.https.HttpsError(
       'unauthenticated',
       'You must be logged in to delete users'
@@ -146,8 +144,10 @@ export const deleteAppUser = functions.https.onCall(async (request) => {
   }
 
   // Check if caller is the owner (bypass appUsers check)
-  const callerEmail = auth.token.email?.toLowerCase();
+  const callerEmail = context.auth.token.email?.toLowerCase();
   const isOwner = callerEmail === OWNER_EMAIL.toLowerCase();
+
+  console.log('deleteAppUser called by:', callerEmail, 'isOwner:', isOwner);
 
   if (!isOwner) {
     // Verify caller has full permission
@@ -211,10 +211,8 @@ export const deleteAppUser = functions.https.onCall(async (request) => {
 /**
  * Cloud Function to send password reset email
  */
-export const sendPasswordReset = functions.https.onCall(async (request) => {
-  const { data, auth } = request;
-
-  if (!auth) {
+export const sendPasswordReset = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
     throw new functions.https.HttpsError(
       'unauthenticated',
       'You must be logged in'
