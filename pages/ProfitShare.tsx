@@ -1,21 +1,38 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { Plus, Loader2, Pencil, Trash2, X, DollarSign } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
+import { Plus, Loader2, Pencil, Trash2, X, DollarSign, TrendingUp } from 'lucide-react';
 import { usePartners } from '../hooks/usePartners';
 import { usePnL } from '../hooks/useTransactions';
+import { useAuth } from '../contexts/AuthContext';
+import { getTransactions, getTimesheets, getPayrollRecords } from '../services/firestoreService';
+import { convertToUSD } from '../services/currencyService';
 import type { PartnerInput } from '../types';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import toast from 'react-hot-toast';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6'];
 
 const ProfitShare = () => {
+  const { user } = useAuth();
+
   // Get current month P&L for profit pool
   const now = new Date();
   const startDate = format(startOfMonth(now), 'yyyy-MM-dd');
   const endDate = format(endOfMonth(now), 'yyyy-MM-dd');
-  const { profit, loading: pnlLoading } = usePnL(startDate, endDate);
+  const {
+    profit,
+    revenue,
+    expenses,
+    contractorRevenue,
+    contractorCost,
+    contractorProfit,
+    payrollCost,
+    transactionRevenue,
+    transactionExpenses,
+    transactionProfit,
+    loading: pnlLoading
+  } = usePnL(startDate, endDate);
 
   const {
     partners,
@@ -32,6 +49,97 @@ const ProfitShare = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [distributing, setDistributing] = useState(false);
+
+  // Monthly earnings data for chart
+  const [monthlyEarnings, setMonthlyEarnings] = useState<Array<{
+    month: string;
+    revenue: number;
+    expenses: number;
+    profit: number;
+  }>>([]);
+  const [monthlyLoading, setMonthlyLoading] = useState(true);
+
+  // Fetch monthly earnings data for last 6 months
+  useEffect(() => {
+    if (!user?.uid) {
+      setMonthlyLoading(false);
+      return;
+    }
+
+    const fetchMonthlyData = async () => {
+      setMonthlyLoading(true);
+      const monthsData: Array<{ month: string; revenue: number; expenses: number; profit: number }> = [];
+
+      // Get data for last 6 months
+      for (let i = 5; i >= 0; i--) {
+        const monthDate = subMonths(now, i);
+        const monthStart = format(startOfMonth(monthDate), 'yyyy-MM-dd');
+        const monthEnd = format(endOfMonth(monthDate), 'yyyy-MM-dd');
+        const monthLabel = format(monthDate, 'MMM yy');
+
+        try {
+          const [transactions, timesheets, payrollRecords] = await Promise.all([
+            getTransactions(user.uid, { startDate: monthStart, endDate: monthEnd, status: 'posted' }),
+            getTimesheets(user.uid),
+            getPayrollRecords(user.uid),
+          ]);
+
+          // Filter timesheets by month
+          const monthStr = format(monthDate, 'yyyy-MM');
+          const filteredTimesheets = timesheets.filter((t: any) => t.month === monthStr);
+
+          // Filter payroll by month
+          const filteredPayroll = payrollRecords.filter((p: any) => p.month === monthStr && p.status === 'paid');
+
+          // Calculate contractor revenue/cost
+          let contractorRev = 0;
+          let contractorCost = 0;
+          filteredTimesheets.forEach((t: any) => {
+            const rev = convertToUSD(t.totalBillable || 0, t.currency || 'USD');
+            const cost = convertToUSD(t.totalPayable || 0, t.currency || 'USD');
+            contractorRev += rev;
+            contractorCost += cost;
+          });
+
+          // Calculate payroll cost
+          let payroll = 0;
+          filteredPayroll.forEach((p: any) => {
+            payroll += convertToUSD(p.netAmount || 0, p.currency || 'USD');
+          });
+
+          // Calculate transaction revenue/expenses
+          let txRev = 0;
+          let txExp = 0;
+          transactions.forEach((t: any) => {
+            if (t.type === 'revenue') {
+              txRev += t.amount || 0;
+            } else {
+              txExp += t.amount || 0;
+            }
+          });
+
+          const totalRevenue = contractorRev + txRev;
+          const totalExpenses = contractorCost + payroll + txExp;
+          const totalProfit = totalRevenue - totalExpenses;
+
+          monthsData.push({
+            month: monthLabel,
+            revenue: totalRevenue,
+            expenses: totalExpenses,
+            profit: totalProfit,
+          });
+        } catch (err) {
+          console.error(`Error fetching data for ${monthLabel}:`, err);
+          monthsData.push({ month: monthLabel, revenue: 0, expenses: 0, profit: 0 });
+        }
+      }
+
+      setMonthlyEarnings(monthsData);
+      setMonthlyLoading(false);
+    };
+
+    fetchMonthlyData();
+  }, [user?.uid]);
 
   // Form state
   const [name, setName] = useState('');
@@ -262,12 +370,44 @@ const ProfitShare = () => {
                 <CardTitle className="text-indigo-200">Total Available Pool</CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="text-5xl font-bold mb-4">{formatCurrency(poolAmount)}</div>
-                <p className="text-indigo-200 text-sm">
+                <div className="text-5xl font-bold mb-4 text-white">{formatCurrency(poolAmount)}</div>
+                <p className="text-indigo-200 text-sm mb-3">
                   {poolAmount > 0
-                    ? `Calculated from Net Profit (${format(now, 'MMMM yyyy')})`
+                    ? `Combined Net Profit (${format(now, 'MMMM yyyy')})`
                     : 'No profit available this period'}
                 </p>
+                {/* Profit Breakdown */}
+                {(contractorProfit !== 0 || transactionProfit !== 0 || payrollCost !== 0) && (
+                  <div className="mt-4 pt-4 border-t border-indigo-700 space-y-2">
+                    <p className="text-indigo-300 text-xs uppercase tracking-wider mb-2">Profit Sources</p>
+                    {contractorProfit !== 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-indigo-200">Contractor Services</span>
+                        <span className="text-white font-medium">{formatCurrency(contractorProfit)}</span>
+                      </div>
+                    )}
+                    {transactionProfit !== 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-indigo-200">Other Revenue/Expenses</span>
+                        <span className="text-white font-medium">{formatCurrency(transactionProfit)}</span>
+                      </div>
+                    )}
+                    {payrollCost !== 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-indigo-200">Team Payroll</span>
+                        <span className="text-red-300 font-medium">-{formatCurrency(payrollCost)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm pt-2 border-t border-indigo-700">
+                      <span className="text-indigo-200">Total Revenue</span>
+                      <span className="text-white font-medium">{formatCurrency(revenue)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-indigo-200">Total Expenses</span>
+                      <span className="text-white font-medium">{formatCurrency(expenses)}</span>
+                    </div>
+                  </div>
+                )}
                 {partnersWithAmounts.length > 0 && metrics.totalShareAllocated === 100 && (
                   <button
                     onClick={handleDistribute}
@@ -294,7 +434,7 @@ const ProfitShare = () => {
               <CardHeader>
                 <CardTitle>Share Allocation</CardTitle>
               </CardHeader>
-              <CardContent className="h-[200px] pt-0">
+              <CardContent className="h-[300px] pt-0">
                 {partnersWithAmounts.length === 0 ? (
                   <div className="h-full flex items-center justify-center">
                     <p className="text-slate-500">Add partners to see allocation</p>
@@ -306,18 +446,23 @@ const ProfitShare = () => {
                         data={partnersWithAmounts}
                         cx="50%"
                         cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
+                        innerRadius={50}
+                        outerRadius={100}
+                        paddingAngle={3}
                         dataKey="sharePercentage"
                         nameKey="name"
+                        label={({ name, sharePercentage }) => `${name}: ${sharePercentage}%`}
+                        labelLine={{ stroke: '#64748b', strokeWidth: 1 }}
                       >
                         {partnersWithAmounts.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => [`${value}%`, 'Share']}
+                        formatter={(value: number, name: string, props: any) => [
+                          `${value}% (${formatCurrency(props.payload.amount)})`,
+                          props.payload.name
+                        ]}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -325,6 +470,48 @@ const ProfitShare = () => {
               </CardContent>
             </Card>
           </div>
+
+          {/* Monthly Earnings Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp size={20} className="text-indigo-600" />
+                Monthly Earnings (Last 6 Months)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="h-[300px] pt-0">
+              {monthlyLoading ? (
+                <div className="h-full flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+                </div>
+              ) : monthlyEarnings.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-slate-500">No earnings data available</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyEarnings} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#64748b" />
+                    <YAxis
+                      tick={{ fontSize: 12 }}
+                      stroke="#64748b"
+                      tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => formatCurrency(value)}
+                      labelStyle={{ fontWeight: 'bold' }}
+                      contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                    />
+                    <Legend />
+                    <Bar dataKey="revenue" name="Revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="expenses" name="Expenses" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="profit" name="Profit" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

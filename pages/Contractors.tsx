@@ -17,6 +17,9 @@ import {
   Upload,
   FileText,
   ExternalLink,
+  Download,
+  AlertCircle,
+  CheckCircle,
 } from 'lucide-react';
 import { useContractors } from '../hooks/useContractors';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,6 +31,15 @@ import {
   formatCurrencyAmount,
   initializeExchangeRates,
 } from '../services/currencyService';
+import {
+  generateTimesheetTemplate,
+  parseExcelFile,
+  parseTimesheetExcel,
+  matchTimesheetsToAssignments,
+  convertToTimesheetInputs,
+  downloadTemplate,
+  type TimesheetUploadRow,
+} from '../services/excelService';
 import type {
   CustomerInput,
   ContractorInput,
@@ -165,6 +177,18 @@ const Contractors = () => {
   const [tsOvertimeDays, setTsOvertimeDays] = useState('0');
   const [tsOvertimeHours, setTsOvertimeHours] = useState('0');
   const [tsStatus, setTsStatus] = useState<'draft' | 'submitted' | 'approved'>('draft');
+
+  // Excel upload state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadParsing, setUploadParsing] = useState(false);
+  const [uploadSaving, setUploadSaving] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<{
+    matched: { row: TimesheetUploadRow; assignment: ContractorAssignment }[];
+    unmatched: { row: TimesheetUploadRow; reason: string }[];
+  } | null>(null);
+  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+  const timesheetFileInputRef = useRef<HTMLInputElement>(null);
 
   // Calculate metrics based on filter
   const metrics = useMemo(() => {
@@ -494,6 +518,104 @@ const Contractors = () => {
     await generateTimesheetsForMonth(selectedMonth);
   };
 
+  // ============ EXCEL UPLOAD HANDLERS ============
+  const handleDownloadTemplate = () => {
+    const blob = generateTimesheetTemplate();
+    downloadTemplate(blob, 'timesheet_template.xlsx');
+    toast.success('Template downloaded');
+  };
+
+  const handleTimesheetFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ];
+    if (!validTypes.includes(file.type) && !file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      toast.error('Please upload an Excel file (.xlsx or .xls)');
+      return;
+    }
+
+    setUploadFile(file);
+    setUploadErrors([]);
+    setUploadPreview(null);
+    setShowUploadModal(true);
+    setUploadParsing(true);
+
+    try {
+      const data = await parseExcelFile(file);
+      const result = parseTimesheetExcel(data);
+
+      if (!result.success || !result.data) {
+        setUploadErrors(result.errors || ['Failed to parse file']);
+        setUploadParsing(false);
+        return;
+      }
+
+      // Match to assignments
+      const matchResult = matchTimesheetsToAssignments(result.data, assignments);
+      setUploadPreview(matchResult);
+
+      if (result.warnings) {
+        result.warnings.forEach((w) => toast(w, { icon: '⚠️' }));
+      }
+    } catch (err) {
+      setUploadErrors(['Failed to read the Excel file. Please ensure it is a valid Excel file.']);
+    }
+    setUploadParsing(false);
+
+    // Reset file input
+    if (timesheetFileInputRef.current) {
+      timesheetFileInputRef.current.value = '';
+    }
+  };
+
+  const handleUploadConfirm = async () => {
+    if (!uploadPreview || uploadPreview.matched.length === 0) return;
+
+    setUploadSaving(true);
+    const timesheetInputs = convertToTimesheetInputs(uploadPreview.matched);
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const input of timesheetInputs) {
+      try {
+        const id = await addTimesheet(input);
+        if (id) {
+          successCount++;
+        } else {
+          errorCount++;
+        }
+      } catch (err) {
+        errorCount++;
+      }
+    }
+
+    setUploadSaving(false);
+
+    if (successCount > 0) {
+      toast.success(`Successfully imported ${successCount} timesheet${successCount !== 1 ? 's' : ''}`);
+    }
+    if (errorCount > 0) {
+      toast.error(`Failed to import ${errorCount} timesheet${errorCount !== 1 ? 's' : ''}`);
+    }
+
+    handleCloseUploadModal();
+  };
+
+  const handleCloseUploadModal = () => {
+    setShowUploadModal(false);
+    setUploadFile(null);
+    setUploadPreview(null);
+    setUploadErrors([]);
+    setUploadParsing(false);
+    setUploadSaving(false);
+  };
+
   // Generate month options for the last 12 months
   const monthOptions = useMemo(() => {
     const options = [];
@@ -597,7 +719,70 @@ const Contractors = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* Entity Count KPI Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="bg-indigo-50 border-indigo-200">
+          <div className="p-5">
+            <div className="flex items-center gap-4">
+              <div className="bg-indigo-100 p-3 rounded-xl flex-shrink-0">
+                <Users className="h-6 w-6 text-indigo-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-600">Active Contractors</p>
+                <p className="text-2xl font-bold text-indigo-700">{metrics.activeContractors}</p>
+                <p className="text-xs text-slate-500">{contractors.length} total</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="bg-cyan-50 border-cyan-200">
+          <div className="p-5">
+            <div className="flex items-center gap-4">
+              <div className="bg-cyan-100 p-3 rounded-xl flex-shrink-0">
+                <Building2 className="h-6 w-6 text-cyan-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-600">Active Customers</p>
+                <p className="text-2xl font-bold text-cyan-700">{metrics.activeCustomers}</p>
+                <p className="text-xs text-slate-500">{customers.length} total</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="bg-amber-50 border-amber-200">
+          <div className="p-5">
+            <div className="flex items-center gap-4">
+              <div className="bg-amber-100 p-3 rounded-xl flex-shrink-0">
+                <Briefcase className="h-6 w-6 text-amber-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-600">Active Assignments</p>
+                <p className="text-2xl font-bold text-amber-700">{metrics.activeAssignments}</p>
+                <p className="text-xs text-slate-500">{assignments.length} total</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="bg-violet-50 border-violet-200">
+          <div className="p-5">
+            <div className="flex items-center gap-4">
+              <div className="bg-violet-100 p-3 rounded-xl flex-shrink-0">
+                <Calendar className="h-6 w-6 text-violet-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-600">Timesheets</p>
+                <p className="text-2xl font-bold text-violet-700">{filteredTimesheets.length}</p>
+                <p className="text-xs text-slate-500">{timesheets.length} total</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Financial KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="bg-blue-50 border-blue-200">
           <div className="p-5">
@@ -645,7 +830,7 @@ const Contractors = () => {
           <div className="p-5">
             <div className="flex items-center gap-4">
               <div className="bg-purple-100 p-3 rounded-xl flex-shrink-0">
-                <Users className="h-6 w-6 text-purple-600" />
+                <TrendingUp className="h-6 w-6 text-purple-600" />
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-slate-600">Margin</p>
@@ -1365,15 +1550,37 @@ const Contractors = () => {
         {/* ============ TIMESHEETS TAB ============ */}
         {activeTab === 'timesheets' && (
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <p className="text-sm text-slate-500">
                 {filteredTimesheets.length} timesheet entr{filteredTimesheets.length !== 1 ? 'ies' : 'y'}
               </p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 text-sm font-medium"
+                >
+                  <Download size={16} />
+                  Template
+                </button>
+                <input
+                  ref={timesheetFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleTimesheetFileSelect}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => timesheetFileInputRef.current?.click()}
+                  disabled={assignments.length === 0}
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-100 text-sm font-medium disabled:opacity-50"
+                >
+                  <Upload size={16} />
+                  Upload Excel
+                </button>
                 <button
                   onClick={handleGenerateTimesheets}
                   disabled={assignments.filter((a) => a.status === 'active').length === 0}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 text-sm font-medium disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 text-sm font-medium disabled:opacity-50"
                 >
                   <FileSpreadsheet size={16} />
                   Generate for {format(new Date(selectedMonth + '-01'), 'MMM yyyy')}
@@ -1381,7 +1588,7 @@ const Contractors = () => {
                 <button
                   onClick={() => setShowForm(true)}
                   disabled={assignments.length === 0}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
                 >
                   <Plus size={16} />
                   Add Entry
@@ -1760,6 +1967,173 @@ const Contractors = () => {
           </div>
         )}
       </div>
+
+      {/* Excel Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">
+                Import Timesheets from Excel
+              </h3>
+              <button
+                onClick={handleCloseUploadModal}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {uploadParsing ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+                  <p className="text-slate-500 mt-2">Processing file...</p>
+                </div>
+              ) : uploadErrors.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-medium text-red-800">Failed to parse file</h4>
+                        <ul className="mt-2 text-sm text-red-700 space-y-1">
+                          {uploadErrors.map((error, idx) => (
+                            <li key={idx}>{error}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    Please fix the errors above and try again. You can{' '}
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      download the template
+                    </button>{' '}
+                    for reference.
+                  </p>
+                </div>
+              ) : uploadPreview ? (
+                <div className="space-y-6">
+                  {/* File info */}
+                  <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                    <FileSpreadsheet className="h-8 w-8 text-emerald-600" />
+                    <div>
+                      <p className="font-medium text-slate-900">{uploadFile?.name}</p>
+                      <p className="text-sm text-slate-500">
+                        {uploadPreview.matched.length + uploadPreview.unmatched.length} rows found
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Summary */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-5 w-5 text-emerald-600" />
+                        <span className="font-semibold text-emerald-800">
+                          {uploadPreview.matched.length} Ready to Import
+                        </span>
+                      </div>
+                    </div>
+                    <div className={`rounded-lg p-4 ${uploadPreview.unmatched.length > 0 ? 'bg-amber-50 border border-amber-200' : 'bg-slate-50 border border-slate-200'}`}>
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className={`h-5 w-5 ${uploadPreview.unmatched.length > 0 ? 'text-amber-600' : 'text-slate-400'}`} />
+                        <span className={`font-semibold ${uploadPreview.unmatched.length > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
+                          {uploadPreview.unmatched.length} Skipped
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Matched items preview */}
+                  {uploadPreview.matched.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-slate-700 mb-2">Ready to Import:</h4>
+                      <div className="border border-slate-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                        <table className="min-w-full divide-y divide-slate-200 text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Contractor</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Customer</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Month</th>
+                              <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">Days</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {uploadPreview.matched.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50">
+                                <td className="px-3 py-2 text-slate-900">{item.row.contractorName}</td>
+                                <td className="px-3 py-2 text-slate-600">{item.row.customerName}</td>
+                                <td className="px-3 py-2 text-slate-600">{item.row.month}</td>
+                                <td className="px-3 py-2 text-right text-slate-600">
+                                  {item.row.standardDaysWorked + item.row.overtimeDays + item.row.overtimeHours / 8}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Unmatched items */}
+                  {uploadPreview.unmatched.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-amber-700 mb-2">Skipped (no matching assignment):</h4>
+                      <div className="border border-amber-200 rounded-lg overflow-hidden max-h-36 overflow-y-auto bg-amber-50/50">
+                        <table className="min-w-full divide-y divide-amber-200 text-sm">
+                          <thead className="bg-amber-50 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-amber-700">Contractor</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-amber-700">Customer</th>
+                              <th className="px-3 py-2 text-left text-xs font-semibold text-amber-700">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-amber-100">
+                            {uploadPreview.unmatched.map((item, idx) => (
+                              <tr key={idx}>
+                                <td className="px-3 py-2 text-amber-900">{item.row.contractorName}</td>
+                                <td className="px-3 py-2 text-amber-800">{item.row.customerName}</td>
+                                <td className="px-3 py-2 text-amber-700 text-xs">{item.reason}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                  <FileSpreadsheet className="h-12 w-12 text-slate-300 mb-2" />
+                  <p>No file selected</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-200 bg-slate-50">
+              <button
+                onClick={handleCloseUploadModal}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUploadConfirm}
+                disabled={!uploadPreview || uploadPreview.matched.length === 0 || uploadSaving}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
+              >
+                {uploadSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Import {uploadPreview?.matched.length || 0} Timesheet{uploadPreview?.matched.length !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

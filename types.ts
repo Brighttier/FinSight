@@ -269,3 +269,272 @@ export type CustomerInput = Omit<Customer, 'id' | 'userId' | 'createdAt' | 'upda
 export type ContractorInput = Omit<Contractor, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type ContractorAssignmentInput = Omit<ContractorAssignment, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type ContractorTimesheetInput = Omit<ContractorTimesheet, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+
+// ============ RECRUITMENT MODULE ============
+
+export type CandidateStatus =
+  | 'sourced'
+  | 'submitted_to_client'
+  | 'client_review'
+  | 'interview_scheduled'
+  | 'interview_completed'
+  | 'offer_stage'
+  | 'offer_extended'
+  | 'offer_accepted'
+  | 'placed'
+  | 'rejected'
+  | 'withdrawn';
+
+export type RecruiterTaskType =
+  | 'candidate_sourcing'
+  | 'candidate_submission'
+  | 'client_communication'
+  | 'interview_coordination'
+  | 'offer_negotiation'
+  | 'follow_up'
+  | 'reference_check'
+  | 'onboarding'
+  | 'other';
+
+export interface RecruitmentClient {
+  id: string;
+  userId: string;
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  industry?: string;
+  status: 'active' | 'inactive';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface JobRole {
+  id: string;
+  userId: string;
+  clientId: string;
+  clientName: string;
+  title: string;
+  description?: string;
+  requirements?: string[];
+  salaryRange?: { min: number; max: number; currency: CurrencyCode };
+  location?: string;
+  type: 'full_time' | 'part_time' | 'contract';
+  priority: 'high' | 'medium' | 'low';
+  status: 'open' | 'on_hold' | 'filled' | 'cancelled';
+  openDate: string;
+  targetFillDate?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface Recruiter {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  specializations?: string[];
+  status: 'active' | 'inactive';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface Candidate {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  currentCompany?: string;
+  currentRole?: string;
+  experience?: number; // years
+  skills?: string[];
+  resumeUrl?: string;
+  resumeFileName?: string;
+  linkedinUrl?: string;
+  source?: string; // e.g., LinkedIn, Referral, Job Board
+  notes?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CandidateSubmission {
+  id: string;
+  userId: string;
+  candidateId: string;
+  candidateName: string;
+  candidateEmail: string;
+  clientId: string;
+  clientName: string;
+  jobRoleId: string;
+  jobRoleTitle: string;
+  recruiterId: string;
+  recruiterName: string;
+  status: CandidateStatus;
+  dateSubmitted: string;
+  lastClientUpdate?: string;
+  lastClientResponse?: string;
+  nextActionDate?: string;
+  nextActionDescription?: string;
+  interviewDate?: string;
+  interviewType?: 'phone' | 'video' | 'onsite' | 'technical' | 'final';
+  offerAmount?: number;
+  offerCurrency?: CurrencyCode;
+  offerStatus?: 'pending' | 'accepted' | 'rejected' | 'negotiating';
+  placementDate?: string;
+  placementFee?: number;
+  notes?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface RecruiterTask {
+  id: string;
+  userId: string;
+  recruiterId: string;
+  recruiterName: string;
+  taskType: RecruiterTaskType;
+  date: string;
+  time: string;
+  description: string;
+  details?: string;
+  clientId?: string;
+  clientName?: string;
+  candidateId?: string;
+  candidateName?: string;
+  submissionId?: string;
+  duration?: number; // minutes
+  status: 'completed' | 'pending' | 'cancelled';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Input types for forms
+export type RecruitmentClientInput = Omit<RecruitmentClient, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type JobRoleInput = Omit<JobRole, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type RecruiterInput = Omit<Recruiter, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type CandidateInput = Omit<Candidate, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type CandidateSubmissionInput = Omit<CandidateSubmission, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type RecruiterTaskInput = Omit<RecruiterTask, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+
+// ============ UNIFIED CRM MODULE ============
+
+// Unified Client that serves as the single source of truth
+// Links to: Contractor Customers, Recruitment Clients
+export type ClientType = 'prospect' | 'active' | 'inactive' | 'churned';
+export type ClientSource = 'referral' | 'cold_outreach' | 'inbound' | 'network' | 'conference' | 'other';
+export type DealStage = 'lead' | 'qualified' | 'proposal' | 'negotiation' | 'closed_won' | 'closed_lost';
+export type InteractionType = 'call' | 'email' | 'meeting' | 'demo' | 'proposal_sent' | 'contract_signed' | 'follow_up' | 'other';
+
+export interface CRMClient {
+  id: string;
+  userId: string;
+  name: string;
+  // Contact info
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  linkedinUrl?: string;
+  // Company details
+  industry?: string;
+  companySize?: 'startup' | 'small' | 'medium' | 'enterprise';
+  location?: string;
+  address?: string;
+  // CRM specific
+  type: ClientType;
+  source?: ClientSource;
+  tags?: string[];
+  assignedTo?: string; // Team member/recruiter responsible
+  // Service flags - what services this client uses
+  isContractorClient: boolean; // Uses contractor staffing services
+  isRecruitmentClient: boolean; // Uses recruitment services
+  // Legacy IDs for migration/linking
+  legacyCustomerId?: string; // Old Customer ID from contractor module
+  legacyRecruitmentClientId?: string; // Old RecruitmentClient ID
+  // Financials
+  totalRevenue?: number;
+  lifetimeValue?: number;
+  // Timestamps
+  firstContactDate?: string;
+  lastContactDate?: string;
+  nextFollowUpDate?: string;
+  notes?: string;
+  status: 'active' | 'inactive';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CRMDeal {
+  id: string;
+  userId: string;
+  clientId: string;
+  clientName: string;
+  title: string;
+  description?: string;
+  // Deal details
+  dealType: 'contractor_placement' | 'recruitment' | 'consulting' | 'other';
+  stage: DealStage;
+  probability?: number; // 0-100%
+  value: number;
+  currency: CurrencyCode;
+  // Timeline
+  expectedCloseDate?: string;
+  actualCloseDate?: string;
+  // Related entities
+  relatedJobRoleId?: string;
+  relatedAssignmentId?: string;
+  // Owner
+  ownerId?: string;
+  ownerName?: string;
+  // Tracking
+  lostReason?: string;
+  wonReason?: string;
+  notes?: string;
+  status: 'open' | 'won' | 'lost';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CRMInteraction {
+  id: string;
+  userId: string;
+  clientId: string;
+  clientName: string;
+  dealId?: string;
+  type: InteractionType;
+  subject: string;
+  description?: string;
+  date: string;
+  time?: string;
+  duration?: number; // minutes
+  // Participants
+  contactPerson?: string;
+  teamMember?: string;
+  // Follow up
+  nextSteps?: string;
+  followUpDate?: string;
+  // Outcome
+  outcome?: 'positive' | 'neutral' | 'negative';
+  status: 'completed' | 'scheduled' | 'cancelled';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CRMNote {
+  id: string;
+  userId: string;
+  clientId: string;
+  content: string;
+  isPinned?: boolean;
+  createdBy?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Input types
+export type CRMClientInput = Omit<CRMClient, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type CRMDealInput = Omit<CRMDeal, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type CRMInteractionInput = Omit<CRMInteraction, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type CRMNoteInput = Omit<CRMNote, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;

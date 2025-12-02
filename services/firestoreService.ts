@@ -37,6 +37,26 @@ import type {
   TeamMemberInput,
   PayrollRecord,
   PayrollRecordInput,
+  RecruitmentClient,
+  RecruitmentClientInput,
+  JobRole,
+  JobRoleInput,
+  Recruiter,
+  RecruiterInput,
+  Candidate,
+  CandidateInput,
+  CandidateSubmission,
+  CandidateSubmissionInput,
+  RecruiterTask,
+  RecruiterTaskInput,
+  CRMClient,
+  CRMClientInput,
+  CRMDeal,
+  CRMDealInput,
+  CRMInteraction,
+  CRMInteractionInput,
+  CRMNote,
+  CRMNoteInput,
 } from '../types';
 
 // Helper to convert Firestore timestamps to Date
@@ -1001,4 +1021,977 @@ export async function updatePayrollRecord(
 
 export async function deletePayrollRecord(id: string): Promise<void> {
   await deleteDoc(doc(db, 'payrollRecords', id));
+}
+
+// ============ RECRUITMENT MODULE ============
+
+// ============ RECRUITMENT CLIENTS ============
+
+export async function createRecruitmentClient(
+  userId: string,
+  data: RecruitmentClientInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'recruitmentClients'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getRecruitmentClients(userId: string): Promise<RecruitmentClient[]> {
+  const q = query(
+    collection(db, 'recruitmentClients'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as RecruitmentClient;
+  });
+}
+
+export function subscribeToRecruitmentClients(
+  userId: string,
+  callback: (clients: RecruitmentClient[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'recruitmentClients'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const clients = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as RecruitmentClient;
+      });
+      callback(clients.sort((a, b) => a.name.localeCompare(b.name)));
+    },
+    (error) => {
+      console.error('Error subscribing to recruitment clients:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateRecruitmentClient(
+  id: string,
+  data: Partial<RecruitmentClientInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'recruitmentClients', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteRecruitmentClient(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'recruitmentClients', id));
+}
+
+// ============ JOB ROLES ============
+
+export async function createJobRole(
+  userId: string,
+  data: JobRoleInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'jobRoles'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getJobRoles(
+  userId: string,
+  options?: { clientId?: string; status?: string }
+): Promise<JobRole[]> {
+  const q = query(
+    collection(db, 'jobRoles'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let roles = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as JobRole;
+  });
+
+  if (options?.clientId) {
+    roles = roles.filter((r) => r.clientId === options.clientId);
+  }
+  if (options?.status) {
+    roles = roles.filter((r) => r.status === options.status);
+  }
+
+  return roles.sort((a, b) => b.openDate.localeCompare(a.openDate));
+}
+
+export function subscribeToJobRoles(
+  userId: string,
+  callback: (roles: JobRole[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'jobRoles'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const roles = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as JobRole;
+      });
+      callback(roles.sort((a, b) => b.openDate.localeCompare(a.openDate)));
+    },
+    (error) => {
+      console.error('Error subscribing to job roles:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateJobRole(
+  id: string,
+  data: Partial<JobRoleInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'jobRoles', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteJobRole(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'jobRoles', id));
+}
+
+// ============ RECRUITERS ============
+
+export async function createRecruiter(
+  userId: string,
+  data: RecruiterInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'recruiters'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getRecruiters(userId: string): Promise<Recruiter[]> {
+  const q = query(
+    collection(db, 'recruiters'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as Recruiter;
+  });
+}
+
+export function subscribeToRecruiters(
+  userId: string,
+  callback: (recruiters: Recruiter[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'recruiters'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const recruiters = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as Recruiter;
+      });
+      callback(recruiters.sort((a, b) => a.name.localeCompare(b.name)));
+    },
+    (error) => {
+      console.error('Error subscribing to recruiters:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateRecruiter(
+  id: string,
+  data: Partial<RecruiterInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'recruiters', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteRecruiter(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'recruiters', id));
+}
+
+// ============ CANDIDATES ============
+
+export async function createCandidate(
+  userId: string,
+  data: CandidateInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'candidates'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getCandidates(userId: string): Promise<Candidate[]> {
+  const q = query(
+    collection(db, 'candidates'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as Candidate;
+  });
+}
+
+export function subscribeToCandidates(
+  userId: string,
+  callback: (candidates: Candidate[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'candidates'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const candidates = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as Candidate;
+      });
+      callback(candidates.sort((a, b) => a.name.localeCompare(b.name)));
+    },
+    (error) => {
+      console.error('Error subscribing to candidates:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateCandidate(
+  id: string,
+  data: Partial<CandidateInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'candidates', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteCandidate(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'candidates', id));
+}
+
+// ============ CANDIDATE SUBMISSIONS ============
+
+export async function createCandidateSubmission(
+  userId: string,
+  data: CandidateSubmissionInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'candidateSubmissions'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getCandidateSubmissions(
+  userId: string,
+  options?: {
+    clientId?: string;
+    recruiterId?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }
+): Promise<CandidateSubmission[]> {
+  const q = query(
+    collection(db, 'candidateSubmissions'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let submissions = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as CandidateSubmission;
+  });
+
+  if (options?.clientId) {
+    submissions = submissions.filter((s) => s.clientId === options.clientId);
+  }
+  if (options?.recruiterId) {
+    submissions = submissions.filter((s) => s.recruiterId === options.recruiterId);
+  }
+  if (options?.status) {
+    submissions = submissions.filter((s) => s.status === options.status);
+  }
+  if (options?.dateFrom) {
+    submissions = submissions.filter((s) => s.dateSubmitted >= options.dateFrom!);
+  }
+  if (options?.dateTo) {
+    submissions = submissions.filter((s) => s.dateSubmitted <= options.dateTo!);
+  }
+
+  return submissions.sort((a, b) => b.dateSubmitted.localeCompare(a.dateSubmitted));
+}
+
+export function subscribeToCandidateSubmissions(
+  userId: string,
+  callback: (submissions: CandidateSubmission[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'candidateSubmissions'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const submissions = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as CandidateSubmission;
+      });
+      callback(submissions.sort((a, b) => b.dateSubmitted.localeCompare(a.dateSubmitted)));
+    },
+    (error) => {
+      console.error('Error subscribing to candidate submissions:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateCandidateSubmission(
+  id: string,
+  data: Partial<CandidateSubmissionInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'candidateSubmissions', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteCandidateSubmission(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'candidateSubmissions', id));
+}
+
+// ============ RECRUITER TASKS ============
+
+export async function createRecruiterTask(
+  userId: string,
+  data: RecruiterTaskInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'recruiterTasks'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getRecruiterTasks(
+  userId: string,
+  options?: {
+    recruiterId?: string;
+    date?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    taskType?: string;
+    status?: string;
+  }
+): Promise<RecruiterTask[]> {
+  const q = query(
+    collection(db, 'recruiterTasks'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let tasks = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as RecruiterTask;
+  });
+
+  if (options?.recruiterId) {
+    tasks = tasks.filter((t) => t.recruiterId === options.recruiterId);
+  }
+  if (options?.date) {
+    tasks = tasks.filter((t) => t.date === options.date);
+  }
+  if (options?.dateFrom) {
+    tasks = tasks.filter((t) => t.date >= options.dateFrom!);
+  }
+  if (options?.dateTo) {
+    tasks = tasks.filter((t) => t.date <= options.dateTo!);
+  }
+  if (options?.taskType) {
+    tasks = tasks.filter((t) => t.taskType === options.taskType);
+  }
+  if (options?.status) {
+    tasks = tasks.filter((t) => t.status === options.status);
+  }
+
+  return tasks.sort((a, b) => {
+    const dateCompare = b.date.localeCompare(a.date);
+    if (dateCompare !== 0) return dateCompare;
+    return b.time.localeCompare(a.time);
+  });
+}
+
+export function subscribeToRecruiterTasks(
+  userId: string,
+  callback: (tasks: RecruiterTask[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'recruiterTasks'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const tasks = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as RecruiterTask;
+      });
+      callback(
+        tasks.sort((a, b) => {
+          const dateCompare = b.date.localeCompare(a.date);
+          if (dateCompare !== 0) return dateCompare;
+          return b.time.localeCompare(a.time);
+        })
+      );
+    },
+    (error) => {
+      console.error('Error subscribing to recruiter tasks:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateRecruiterTask(
+  id: string,
+  data: Partial<RecruiterTaskInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'recruiterTasks', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteRecruiterTask(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'recruiterTasks', id));
+}
+
+// ============ CRM MODULE ============
+
+// ============ CRM CLIENTS ============
+
+export async function createCRMClient(
+  userId: string,
+  data: CRMClientInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'crmClients'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getCRMClients(
+  userId: string,
+  options?: {
+    type?: string;
+    status?: string;
+    isContractorClient?: boolean;
+    isRecruitmentClient?: boolean;
+  }
+): Promise<CRMClient[]> {
+  const q = query(
+    collection(db, 'crmClients'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let clients = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as CRMClient;
+  });
+
+  if (options?.type) {
+    clients = clients.filter((c) => c.type === options.type);
+  }
+  if (options?.status) {
+    clients = clients.filter((c) => c.status === options.status);
+  }
+  if (options?.isContractorClient !== undefined) {
+    clients = clients.filter((c) => c.isContractorClient === options.isContractorClient);
+  }
+  if (options?.isRecruitmentClient !== undefined) {
+    clients = clients.filter((c) => c.isRecruitmentClient === options.isRecruitmentClient);
+  }
+
+  return clients.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function subscribeToCRMClients(
+  userId: string,
+  callback: (clients: CRMClient[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'crmClients'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const clients = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as CRMClient;
+      });
+      callback(clients.sort((a, b) => a.name.localeCompare(b.name)));
+    },
+    (error) => {
+      console.error('Error subscribing to CRM clients:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateCRMClient(
+  id: string,
+  data: Partial<CRMClientInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'crmClients', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteCRMClient(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'crmClients', id));
+}
+
+// ============ CRM DEALS ============
+
+export async function createCRMDeal(
+  userId: string,
+  data: CRMDealInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'crmDeals'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getCRMDeals(
+  userId: string,
+  options?: {
+    clientId?: string;
+    stage?: string;
+    status?: string;
+    dealType?: string;
+  }
+): Promise<CRMDeal[]> {
+  const q = query(
+    collection(db, 'crmDeals'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let deals = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as CRMDeal;
+  });
+
+  if (options?.clientId) {
+    deals = deals.filter((d) => d.clientId === options.clientId);
+  }
+  if (options?.stage) {
+    deals = deals.filter((d) => d.stage === options.stage);
+  }
+  if (options?.status) {
+    deals = deals.filter((d) => d.status === options.status);
+  }
+  if (options?.dealType) {
+    deals = deals.filter((d) => d.dealType === options.dealType);
+  }
+
+  return deals.sort((a, b) => {
+    // Sort by expected close date, then by value
+    if (a.expectedCloseDate && b.expectedCloseDate) {
+      return a.expectedCloseDate.localeCompare(b.expectedCloseDate);
+    }
+    return b.value - a.value;
+  });
+}
+
+export function subscribeToCRMDeals(
+  userId: string,
+  callback: (deals: CRMDeal[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'crmDeals'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const deals = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as CRMDeal;
+      });
+      callback(deals.sort((a, b) => b.value - a.value));
+    },
+    (error) => {
+      console.error('Error subscribing to CRM deals:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateCRMDeal(
+  id: string,
+  data: Partial<CRMDealInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'crmDeals', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteCRMDeal(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'crmDeals', id));
+}
+
+// ============ CRM INTERACTIONS ============
+
+export async function createCRMInteraction(
+  userId: string,
+  data: CRMInteractionInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'crmInteractions'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getCRMInteractions(
+  userId: string,
+  options?: {
+    clientId?: string;
+    dealId?: string;
+    type?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }
+): Promise<CRMInteraction[]> {
+  const q = query(
+    collection(db, 'crmInteractions'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let interactions = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as CRMInteraction;
+  });
+
+  if (options?.clientId) {
+    interactions = interactions.filter((i) => i.clientId === options.clientId);
+  }
+  if (options?.dealId) {
+    interactions = interactions.filter((i) => i.dealId === options.dealId);
+  }
+  if (options?.type) {
+    interactions = interactions.filter((i) => i.type === options.type);
+  }
+  if (options?.dateFrom) {
+    interactions = interactions.filter((i) => i.date >= options.dateFrom!);
+  }
+  if (options?.dateTo) {
+    interactions = interactions.filter((i) => i.date <= options.dateTo!);
+  }
+
+  return interactions.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export function subscribeToCRMInteractions(
+  userId: string,
+  callback: (interactions: CRMInteraction[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'crmInteractions'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const interactions = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as CRMInteraction;
+      });
+      callback(interactions.sort((a, b) => b.date.localeCompare(a.date)));
+    },
+    (error) => {
+      console.error('Error subscribing to CRM interactions:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateCRMInteraction(
+  id: string,
+  data: Partial<CRMInteractionInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'crmInteractions', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteCRMInteraction(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'crmInteractions', id));
+}
+
+// ============ CRM NOTES ============
+
+export async function createCRMNote(
+  userId: string,
+  data: CRMNoteInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'crmNotes'), {
+    ...cleanData,
+    userId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getCRMNotes(
+  userId: string,
+  clientId?: string
+): Promise<CRMNote[]> {
+  const q = query(
+    collection(db, 'crmNotes'),
+    where('userId', '==', userId)
+  );
+  const snapshot = await getDocs(q);
+
+  let notes = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as CRMNote;
+  });
+
+  if (clientId) {
+    notes = notes.filter((n) => n.clientId === clientId);
+  }
+
+  // Sort by pinned first, then by date
+  return notes.sort((a, b) => {
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return dateB - dateA;
+  });
+}
+
+export function subscribeToCRMNotes(
+  userId: string,
+  callback: (notes: CRMNote[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'crmNotes'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const notes = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as CRMNote;
+      });
+      // Sort by pinned first, then by date
+      callback(notes.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      }));
+    },
+    (error) => {
+      console.error('Error subscribing to CRM notes:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateCRMNote(
+  id: string,
+  data: Partial<CRMNoteInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'crmNotes', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteCRMNote(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'crmNotes', id));
 }

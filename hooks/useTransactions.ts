@@ -6,8 +6,11 @@ import {
   updateTransaction,
   deleteTransaction,
   subscribeToTransactions,
+  getTimesheets,
+  getPayrollRecords,
 } from '../services/firestoreService';
 import type { Transaction, TransactionInput, ChartDataPoint } from '../types';
+import { convertToUSD } from '../services/currencyService';
 import toast from 'react-hot-toast';
 
 interface UseTransactionsOptions {
@@ -217,7 +220,7 @@ export function useCashFlow(days: number = 30) {
   return { cashFlow, totals, loading };
 }
 
-// Hook for P&L calculations
+// Hook for P&L calculations (combines transactions + contractor timesheets + payroll)
 export function usePnL(startDate?: string, endDate?: string) {
   const { user } = useAuth();
   const [pnlData, setPnlData] = useState<{
@@ -226,12 +229,29 @@ export function usePnL(startDate?: string, endDate?: string) {
     profit: number;
     expensesByCategory: Record<string, number>;
     revenueByCategory: Record<string, number>;
+    // Contractor breakdown
+    contractorRevenue: number;
+    contractorCost: number;
+    contractorProfit: number;
+    // Payroll breakdown
+    payrollCost: number;
+    // Transaction breakdown
+    transactionRevenue: number;
+    transactionExpenses: number;
+    transactionProfit: number;
   }>({
     revenue: 0,
     expenses: 0,
     profit: 0,
     expensesByCategory: {},
     revenueByCategory: {},
+    contractorRevenue: 0,
+    contractorCost: 0,
+    contractorProfit: 0,
+    payrollCost: 0,
+    transactionRevenue: 0,
+    transactionExpenses: 0,
+    transactionProfit: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -244,35 +264,121 @@ export function usePnL(startDate?: string, endDate?: string) {
     const fetchPnL = async () => {
       try {
         setLoading(true);
-        const transactions = await getTransactions(user.uid, {
-          startDate,
-          endDate,
-          status: 'posted',
-        });
 
-        let revenue = 0;
-        let expenses = 0;
+        // Fetch transactions, timesheets, and payroll records in parallel
+        const [transactions, timesheets, payrollRecords] = await Promise.all([
+          getTransactions(user.uid, {
+            startDate,
+            endDate,
+            status: 'posted',
+          }),
+          getTimesheets(user.uid),
+          getPayrollRecords(user.uid),
+        ]);
+
+        // Calculate transaction-based P&L
+        let transactionRevenue = 0;
+        let transactionExpenses = 0;
         const expensesByCategory: Record<string, number> = {};
         const revenueByCategory: Record<string, number> = {};
 
         transactions.forEach((t) => {
           if (t.type === 'revenue') {
-            revenue += t.amount;
+            transactionRevenue += t.amount;
             revenueByCategory[t.category] =
               (revenueByCategory[t.category] || 0) + t.amount;
           } else {
-            expenses += t.amount;
+            transactionExpenses += t.amount;
             expensesByCategory[t.category] =
               (expensesByCategory[t.category] || 0) + t.amount;
           }
         });
 
+        // Calculate contractor timesheet-based P&L
+        // Filter timesheets by date range if provided
+        let filteredTimesheets = timesheets;
+        if (startDate || endDate) {
+          filteredTimesheets = timesheets.filter((t) => {
+            // Convert month (YYYY-MM) to comparable date strings
+            const tsMonthStart = `${t.month}-01`;
+            const tsMonthEnd = `${t.month}-31`;
+
+            if (startDate && tsMonthEnd < startDate) return false;
+            if (endDate && tsMonthStart > endDate) return false;
+            return true;
+          });
+        }
+
+        let contractorRevenue = 0;
+        let contractorCost = 0;
+
+        filteredTimesheets.forEach((ts) => {
+          contractorRevenue += ts.externalRevenue || 0;
+          // Use USD cost for accurate calculation
+          contractorCost += ts.internalCostUSD ?? ts.internalCost ?? 0;
+        });
+
+        const contractorProfit = contractorRevenue - contractorCost;
+
+        // Calculate payroll costs (only paid records in the date range)
+        let filteredPayroll = payrollRecords.filter((p) => p.status === 'paid');
+        if (startDate || endDate) {
+          filteredPayroll = filteredPayroll.filter((p) => {
+            // Payroll month is YYYY-MM format
+            const payrollMonthStart = `${p.month}-01`;
+            const payrollMonthEnd = `${p.month}-31`;
+
+            if (startDate && payrollMonthEnd < startDate) return false;
+            if (endDate && payrollMonthStart > endDate) return false;
+            return true;
+          });
+        }
+
+        let payrollCost = 0;
+        filteredPayroll.forEach((p) => {
+          // Convert to USD if needed
+          const amountUSD = p.currency && p.currency !== 'USD'
+            ? convertToUSD(p.netAmount, p.currency)
+            : p.netAmount;
+          payrollCost += amountUSD;
+        });
+
+        // Add contractor revenue to revenue breakdown
+        if (contractorRevenue > 0) {
+          revenueByCategory['Contractor Services'] =
+            (revenueByCategory['Contractor Services'] || 0) + contractorRevenue;
+        }
+
+        // Add contractor costs to expense breakdown
+        if (contractorCost > 0) {
+          expensesByCategory['Contractor Payments'] =
+            (expensesByCategory['Contractor Payments'] || 0) + contractorCost;
+        }
+
+        // Add payroll costs to expense breakdown
+        if (payrollCost > 0) {
+          expensesByCategory['Team Payroll'] =
+            (expensesByCategory['Team Payroll'] || 0) + payrollCost;
+        }
+
+        // Combined totals
+        const totalRevenue = transactionRevenue + contractorRevenue;
+        const totalExpenses = transactionExpenses + contractorCost + payrollCost;
+        const totalProfit = totalRevenue - totalExpenses;
+
         setPnlData({
-          revenue,
-          expenses,
-          profit: revenue - expenses,
+          revenue: totalRevenue,
+          expenses: totalExpenses,
+          profit: totalProfit,
           expensesByCategory,
           revenueByCategory,
+          contractorRevenue,
+          contractorCost,
+          contractorProfit,
+          payrollCost,
+          transactionRevenue,
+          transactionExpenses,
+          transactionProfit: transactionRevenue - transactionExpenses,
         });
       } catch (err) {
         console.error('Error calculating P&L:', err);
