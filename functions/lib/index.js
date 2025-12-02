@@ -4,6 +4,8 @@ exports.sendPasswordReset = exports.deleteAppUser = exports.createAppUser = void
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 admin.initializeApp();
+// Owner email that has full access by default
+const OWNER_EMAIL = 'akhare@brighttier.com';
 /**
  * Cloud Function to create a user in Firebase Auth and Firestore appUsers
  * Only callable by authenticated users with user_management permission
@@ -15,19 +17,24 @@ exports.createAppUser = functions.https.onCall(async (request) => {
     if (!auth) {
         throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to create users');
     }
-    // Verify caller has permission (check their appUser record)
-    const callerSnapshot = await admin.firestore()
-        .collection('appUsers')
-        .where('email', '==', (_a = auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase())
-        .limit(1)
-        .get();
-    if (callerSnapshot.empty) {
-        throw new functions.https.HttpsError('permission-denied', 'Caller not found in app users');
-    }
-    const caller = callerSnapshot.docs[0].data();
-    const callerPermission = (_b = caller.permissions) === null || _b === void 0 ? void 0 : _b.user_management;
-    if (callerPermission !== 'edit' && callerPermission !== 'full') {
-        throw new functions.https.HttpsError('permission-denied', 'You do not have permission to create users');
+    // Check if caller is the owner (bypass appUsers check)
+    const callerEmail = (_a = auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+    const isOwner = callerEmail === OWNER_EMAIL.toLowerCase();
+    if (!isOwner) {
+        // Verify caller has permission (check their appUser record)
+        const callerSnapshot = await admin.firestore()
+            .collection('appUsers')
+            .where('email', '==', callerEmail)
+            .limit(1)
+            .get();
+        if (callerSnapshot.empty) {
+            throw new functions.https.HttpsError('permission-denied', 'Caller not found in app users');
+        }
+        const caller = callerSnapshot.docs[0].data();
+        const callerPermission = (_b = caller.permissions) === null || _b === void 0 ? void 0 : _b.user_management;
+        if (callerPermission !== 'edit' && callerPermission !== 'full') {
+            throw new functions.https.HttpsError('permission-denied', 'You do not have permission to create users');
+        }
     }
     // Validate input
     const { email, name, role, organizationId, permissions, invitedBy, tempPassword } = data;
@@ -94,18 +101,23 @@ exports.deleteAppUser = functions.https.onCall(async (request) => {
     if (!auth) {
         throw new functions.https.HttpsError('unauthenticated', 'You must be logged in to delete users');
     }
-    // Verify caller has full permission
-    const callerSnapshot = await admin.firestore()
-        .collection('appUsers')
-        .where('email', '==', (_a = auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase())
-        .limit(1)
-        .get();
-    if (callerSnapshot.empty) {
-        throw new functions.https.HttpsError('permission-denied', 'Caller not found in app users');
-    }
-    const caller = callerSnapshot.docs[0].data();
-    if (((_b = caller.permissions) === null || _b === void 0 ? void 0 : _b.user_management) !== 'full') {
-        throw new functions.https.HttpsError('permission-denied', 'You need full user management permission to delete users');
+    // Check if caller is the owner (bypass appUsers check)
+    const callerEmail = (_a = auth.token.email) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+    const isOwner = callerEmail === OWNER_EMAIL.toLowerCase();
+    if (!isOwner) {
+        // Verify caller has full permission
+        const callerSnapshot = await admin.firestore()
+            .collection('appUsers')
+            .where('email', '==', callerEmail)
+            .limit(1)
+            .get();
+        if (callerSnapshot.empty) {
+            throw new functions.https.HttpsError('permission-denied', 'Caller not found in app users');
+        }
+        const caller = callerSnapshot.docs[0].data();
+        if (((_b = caller.permissions) === null || _b === void 0 ? void 0 : _b.user_management) !== 'full') {
+            throw new functions.https.HttpsError('permission-denied', 'You need full user management permission to delete users');
+        }
     }
     const { email } = data;
     if (!email) {
