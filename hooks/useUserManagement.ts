@@ -63,7 +63,7 @@ export function useUserManagement(options: UseUserManagementOptions = {}) {
           const { organizationId, appUserId } = await initializeOrganizationForUser(
             user.uid,
             user.email!,
-            user.displayName || user.email!.split('@')[0]
+            user.name || user.email!.split('@')[0]
           );
           appUser = await getAppUserByEmail(user.email!);
         }
