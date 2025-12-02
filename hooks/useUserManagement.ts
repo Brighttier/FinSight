@@ -6,7 +6,7 @@ import {
   subscribeToAppUsers,
   createAppUser,
   updateAppUser,
-  deleteAppUser,
+  deleteAppUser as deleteAppUserFromFirestore,
   getOrganization,
   updateOrganization,
   createUserInvitation,
@@ -15,6 +15,7 @@ import {
   deleteUserInvitation,
   initializeOrganizationForUser,
 } from '../services/firestoreService';
+import { createUserWithAuth, deleteUserFromAuth, generatePasswordResetLink } from '../services/userFunctions';
 import type {
   AppUser,
   AppUserInput,
@@ -207,7 +208,7 @@ export function useUserManagement(options: UseUserManagementOptions = {}) {
     }
   };
 
-  // Add user directly (for quick add)
+  // Add user directly - creates in both Firebase Auth and Firestore
   const addUser = async (
     email: string,
     name: string,
@@ -238,21 +239,41 @@ export function useUserManagement(options: UseUserManagementOptions = {}) {
     try {
       const permissions = customPermissions || DEFAULT_ROLE_PERMISSIONS[role];
 
-      const id = await createAppUser({
-        organizationId: organization.id,
+      // Use Cloud Function to create user in both Firebase Auth and Firestore
+      const result = await createUserWithAuth({
         email: email.toLowerCase(),
         name,
         role,
+        organizationId: organization.id,
         permissions,
-        isActive: true,
         invitedBy: currentAppUser.id,
-        invitedAt: new Date(),
       });
 
-      toast.success(`User ${name} added successfully`);
-      return id;
+      if (result.success) {
+        toast.success(`User ${name} created! Password reset link generated.`);
+        // Copy reset link to clipboard
+        if (result.resetLink) {
+          try {
+            await navigator.clipboard.writeText(result.resetLink);
+            toast.success('Password reset link copied to clipboard');
+          } catch {
+            console.log('Reset link:', result.resetLink);
+          }
+        }
+        return result.appUserId;
+      } else {
+        toast.error('Failed to create user');
+        return null;
+      }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to add user');
+      // Handle specific error cases
+      if (err.code === 'functions/already-exists') {
+        toast.error('A user with this email already exists');
+      } else if (err.code === 'functions/permission-denied') {
+        toast.error('You do not have permission to create users');
+      } else {
+        toast.error(err.message || 'Failed to add user');
+      }
       return null;
     }
   };
@@ -300,7 +321,7 @@ export function useUserManagement(options: UseUserManagementOptions = {}) {
     }
   };
 
-  // Remove user
+  // Remove user - deletes from both Firebase Auth and Firestore
   const removeUser = async (userId: string): Promise<boolean> => {
     if (!currentAppUser) {
       toast.error('Not authenticated');
@@ -329,7 +350,12 @@ export function useUserManagement(options: UseUserManagementOptions = {}) {
     }
 
     try {
-      await deleteAppUser(userId);
+      // Delete from Firebase Auth via Cloud Function
+      await deleteUserFromAuth(targetUser.email);
+
+      // Delete from Firestore
+      await deleteAppUserFromFirestore(userId);
+
       toast.success('User removed successfully');
       return true;
     } catch (err: any) {
