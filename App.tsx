@@ -18,6 +18,7 @@ import Contractors from './pages/Contractors';
 import Team from './pages/Team';
 import Recruitment from './pages/Recruitment';
 import CRM from './pages/CRM';
+import UserManagement from './pages/UserManagement';
 
 const App: React.FC = () => {
   return (
@@ -47,6 +48,7 @@ const App: React.FC = () => {
                     <Route path="/recruitment" element={<Recruitment />} />
                     <Route path="/crm" element={<CRM />} />
                     <Route path="/settings" element={<Settings />} />
+                    <Route path="/users" element={<UserManagement />} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
                 </Layout>

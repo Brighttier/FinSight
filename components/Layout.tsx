@@ -14,17 +14,37 @@ import {
   UserCircle,
   UserSearch,
   Building2,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserManagement } from '../hooks/useUserManagement';
+import type { AppModule } from '../types';
 import toast from 'react-hot-toast';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
-const SidebarItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => {
+interface SidebarItemProps {
+  to: string;
+  icon: any;
+  label: string;
+  disabled?: boolean;
+}
+
+const SidebarItem = ({ to, icon: Icon, label, disabled }: SidebarItemProps) => {
   const location = useLocation();
   const isActive = location.pathname === to;
+
+  if (disabled) {
+    return (
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 cursor-not-allowed opacity-50">
+        <Lock size={16} className="text-slate-400" />
+        <span className="text-sm">{label}</span>
+      </div>
+    );
+  }
 
   return (
     <NavLink
@@ -44,6 +64,7 @@ const SidebarItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+  const { currentAppUser, canAccess } = useUserManagement();
 
   const handleLogout = async () => {
     try {
@@ -65,6 +86,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     return user.name.substring(0, 2).toUpperCase();
   };
 
+  // Helper to check module access
+  const hasAccess = (module: AppModule): boolean => {
+    // If user management isn't loaded yet, show all items
+    if (!currentAppUser) return true;
+    return canAccess(module);
+  };
+
   return (
     <div className="flex min-h-screen w-full bg-slate-50/50">
       {/* Sidebar */}
@@ -83,26 +111,29 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
               Overview
             </div>
-            <SidebarItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-            <SidebarItem to="/pnl" icon={PieChart} label="P&L Statement" />
-            <SidebarItem to="/forecast" icon={TrendingUp} label="Forecasting" />
+            <SidebarItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" disabled={!hasAccess('dashboard')} />
+            <SidebarItem to="/pnl" icon={PieChart} label="P&L Statement" disabled={!hasAccess('pnl')} />
+            <SidebarItem to="/forecast" icon={TrendingUp} label="Forecasting" disabled={!hasAccess('forecast')} />
 
             <div className="px-3 mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-400">
               Management
             </div>
-            <SidebarItem to="/costs/new" icon={PlusCircle} label="Manual Entry" />
-            <SidebarItem to="/subscriptions" icon={CreditCard} label="Subscriptions" />
-            <SidebarItem to="/contractors" icon={Users} label="Contractors" />
-            <SidebarItem to="/team" icon={UserCircle} label="Team & Payroll" />
-            <SidebarItem to="/recruitment" icon={UserSearch} label="Recruitment" />
-            <SidebarItem to="/crm" icon={Building2} label="CRM" />
-            <SidebarItem to="/profit-share" icon={Landmark} label="Profit Share" />
-            <SidebarItem to="/receipts" icon={Receipt} label="Receipts" />
+            <SidebarItem to="/costs/new" icon={PlusCircle} label="Manual Entry" disabled={!hasAccess('transactions')} />
+            <SidebarItem to="/subscriptions" icon={CreditCard} label="Subscriptions" disabled={!hasAccess('subscriptions')} />
+            <SidebarItem to="/contractors" icon={Users} label="Contractors" disabled={!hasAccess('contractors')} />
+            <SidebarItem to="/team" icon={UserCircle} label="Team & Payroll" disabled={!hasAccess('team_payroll')} />
+            <SidebarItem to="/recruitment" icon={UserSearch} label="Recruitment" disabled={!hasAccess('recruitment')} />
+            <SidebarItem to="/crm" icon={Building2} label="CRM" disabled={!hasAccess('crm')} />
+            <SidebarItem to="/profit-share" icon={Landmark} label="Profit Share" disabled={!hasAccess('profit_share')} />
+            <SidebarItem to="/receipts" icon={Receipt} label="Receipts" disabled={!hasAccess('transactions')} />
           </nav>
         </div>
 
         <div className="border-t border-slate-100 p-4">
-            <SidebarItem to="/settings" icon={Settings} label="Settings" />
+            {hasAccess('user_management') && (
+              <SidebarItem to="/users" icon={ShieldCheck} label="User Management" />
+            )}
+            <SidebarItem to="/settings" icon={Settings} label="Settings" disabled={!hasAccess('settings')} />
             <button
               onClick={handleLogout}
               className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors mt-1"

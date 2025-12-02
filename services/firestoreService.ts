@@ -57,6 +57,14 @@ import type {
   CRMInteractionInput,
   CRMNote,
   CRMNoteInput,
+  Organization,
+  AppUser,
+  AppUserInput,
+  UserInvitation,
+  UserInvitationInput,
+  ModulePermissions,
+  UserRole,
+  DEFAULT_ROLE_PERMISSIONS,
 } from '../types';
 
 // Helper to convert Firestore timestamps to Date
@@ -1994,4 +2002,357 @@ export async function updateCRMNote(
 
 export async function deleteCRMNote(id: string): Promise<void> {
   await deleteDoc(doc(db, 'crmNotes', id));
+}
+
+// ============ USER MANAGEMENT ============
+
+// ============ ORGANIZATIONS ============
+
+export async function createOrganization(
+  data: Omit<Organization, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<string> {
+  const docRef = await addDoc(collection(db, 'organizations'), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getOrganization(id: string): Promise<Organization | null> {
+  const docSnap = await getDoc(doc(db, 'organizations', id));
+  if (!docSnap.exists()) return null;
+
+  const data = docSnap.data();
+  return {
+    id: docSnap.id,
+    ...data,
+    createdAt: convertTimestamp(data.createdAt),
+    updatedAt: convertTimestamp(data.updatedAt),
+  } as Organization;
+}
+
+export async function getOrganizationByOwner(ownerId: string): Promise<Organization | null> {
+  const q = query(
+    collection(db, 'organizations'),
+    where('ownerId', '==', ownerId),
+    limit(1)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+
+  const doc = snapshot.docs[0];
+  const data = doc.data();
+  return {
+    id: doc.id,
+    ...data,
+    createdAt: convertTimestamp(data.createdAt),
+    updatedAt: convertTimestamp(data.updatedAt),
+  } as Organization;
+}
+
+export async function updateOrganization(
+  id: string,
+  data: Partial<Omit<Organization, 'id' | 'createdAt' | 'updatedAt'>>
+): Promise<void> {
+  await updateDoc(doc(db, 'organizations', id), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// ============ APP USERS ============
+
+export async function createAppUser(data: AppUserInput): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'appUsers'), {
+    ...cleanData,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getAppUser(id: string): Promise<AppUser | null> {
+  const docSnap = await getDoc(doc(db, 'appUsers', id));
+  if (!docSnap.exists()) return null;
+
+  const data = docSnap.data();
+  return {
+    id: docSnap.id,
+    ...data,
+    lastLoginAt: convertTimestamp(data.lastLoginAt),
+    invitedAt: convertTimestamp(data.invitedAt),
+    createdAt: convertTimestamp(data.createdAt),
+    updatedAt: convertTimestamp(data.updatedAt),
+  } as AppUser;
+}
+
+export async function getAppUserByEmail(email: string): Promise<AppUser | null> {
+  const q = query(
+    collection(db, 'appUsers'),
+    where('email', '==', email.toLowerCase()),
+    limit(1)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+
+  const doc = snapshot.docs[0];
+  const data = doc.data();
+  return {
+    id: doc.id,
+    ...data,
+    lastLoginAt: convertTimestamp(data.lastLoginAt),
+    invitedAt: convertTimestamp(data.invitedAt),
+    createdAt: convertTimestamp(data.createdAt),
+    updatedAt: convertTimestamp(data.updatedAt),
+  } as AppUser;
+}
+
+export async function getAppUsersByOrganization(
+  organizationId: string
+): Promise<AppUser[]> {
+  const q = query(
+    collection(db, 'appUsers'),
+    where('organizationId', '==', organizationId)
+  );
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      lastLoginAt: convertTimestamp(data.lastLoginAt),
+      invitedAt: convertTimestamp(data.invitedAt),
+      createdAt: convertTimestamp(data.createdAt),
+      updatedAt: convertTimestamp(data.updatedAt),
+    } as AppUser;
+  }).sort((a, b) => {
+    // Sort by role priority, then by name
+    const rolePriority = { owner: 0, admin: 1, manager: 2, employee: 3, viewer: 4 };
+    if (rolePriority[a.role] !== rolePriority[b.role]) {
+      return rolePriority[a.role] - rolePriority[b.role];
+    }
+    return a.name.localeCompare(b.name);
+  });
+}
+
+export function subscribeToAppUsers(
+  organizationId: string,
+  callback: (users: AppUser[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'appUsers'),
+    where('organizationId', '==', organizationId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const users = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          lastLoginAt: convertTimestamp(data.lastLoginAt),
+          invitedAt: convertTimestamp(data.invitedAt),
+          createdAt: convertTimestamp(data.createdAt),
+          updatedAt: convertTimestamp(data.updatedAt),
+        } as AppUser;
+      }).sort((a, b) => {
+        const rolePriority = { owner: 0, admin: 1, manager: 2, employee: 3, viewer: 4 };
+        if (rolePriority[a.role] !== rolePriority[b.role]) {
+          return rolePriority[a.role] - rolePriority[b.role];
+        }
+        return a.name.localeCompare(b.name);
+      });
+      callback(users);
+    },
+    (error) => {
+      console.error('Error subscribing to app users:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateAppUser(
+  id: string,
+  data: Partial<AppUserInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'appUsers', id), {
+    ...cleanData,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function updateUserLastLogin(id: string): Promise<void> {
+  await updateDoc(doc(db, 'appUsers', id), {
+    lastLoginAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteAppUser(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'appUsers', id));
+}
+
+// ============ USER INVITATIONS ============
+
+export async function createUserInvitation(
+  data: UserInvitationInput
+): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'userInvitations'), {
+    ...cleanData,
+    email: data.email.toLowerCase(),
+    createdAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getUserInvitation(id: string): Promise<UserInvitation | null> {
+  const docSnap = await getDoc(doc(db, 'userInvitations', id));
+  if (!docSnap.exists()) return null;
+
+  const data = docSnap.data();
+  return {
+    id: docSnap.id,
+    ...data,
+    expiresAt: convertTimestamp(data.expiresAt),
+    createdAt: convertTimestamp(data.createdAt),
+  } as UserInvitation;
+}
+
+export async function getUserInvitationByEmail(
+  email: string,
+  organizationId: string
+): Promise<UserInvitation | null> {
+  const q = query(
+    collection(db, 'userInvitations'),
+    where('email', '==', email.toLowerCase()),
+    where('organizationId', '==', organizationId),
+    where('status', '==', 'pending'),
+    limit(1)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+
+  const doc = snapshot.docs[0];
+  const data = doc.data();
+  return {
+    id: doc.id,
+    ...data,
+    expiresAt: convertTimestamp(data.expiresAt),
+    createdAt: convertTimestamp(data.createdAt),
+  } as UserInvitation;
+}
+
+export async function getPendingInvitationsByOrganization(
+  organizationId: string
+): Promise<UserInvitation[]> {
+  const q = query(
+    collection(db, 'userInvitations'),
+    where('organizationId', '==', organizationId),
+    where('status', '==', 'pending')
+  );
+  const snapshot = await getDocs(q);
+
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      expiresAt: convertTimestamp(data.expiresAt),
+      createdAt: convertTimestamp(data.createdAt),
+    } as UserInvitation;
+  });
+}
+
+export function subscribeToUserInvitations(
+  organizationId: string,
+  callback: (invitations: UserInvitation[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'userInvitations'),
+    where('organizationId', '==', organizationId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const invitations = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          expiresAt: convertTimestamp(data.expiresAt),
+          createdAt: convertTimestamp(data.createdAt),
+        } as UserInvitation;
+      }).sort((a, b) => {
+        // Sort by status (pending first), then by created date
+        if (a.status !== b.status) {
+          return a.status === 'pending' ? -1 : 1;
+        }
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      callback(invitations);
+    },
+    (error) => {
+      console.error('Error subscribing to user invitations:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function updateUserInvitation(
+  id: string,
+  data: Partial<UserInvitationInput>
+): Promise<void> {
+  const cleanData = removeUndefinedValues(data);
+  await updateDoc(doc(db, 'userInvitations', id), cleanData);
+}
+
+export async function deleteUserInvitation(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'userInvitations', id));
+}
+
+// Helper to initialize organization and owner user on first login
+export async function initializeOrganizationForUser(
+  firebaseUid: string,
+  email: string,
+  name: string
+): Promise<{ organizationId: string; appUserId: string }> {
+  // Check if user already exists
+  const existingUser = await getAppUserByEmail(email);
+  if (existingUser) {
+    // Update last login
+    await updateUserLastLogin(existingUser.id);
+    return {
+      organizationId: existingUser.organizationId,
+      appUserId: existingUser.id,
+    };
+  }
+
+  // Check if there's a pending invitation
+  // For now, create a new organization with this user as owner
+  const orgId = await createOrganization({
+    name: `${name}'s Organization`,
+    ownerId: firebaseUid,
+    ownerEmail: email.toLowerCase(),
+  });
+
+  const appUserId = await createAppUser({
+    organizationId: orgId,
+    email: email.toLowerCase(),
+    name,
+    role: 'owner',
+    permissions: DEFAULT_ROLE_PERMISSIONS.owner,
+    isActive: true,
+  });
+
+  return { organizationId: orgId, appUserId };
 }

@@ -1,6 +1,163 @@
 import React from 'react';
 
-export type UserRole = 'director' | 'employee' | 'contractor';
+export type UserRole = 'owner' | 'admin' | 'manager' | 'employee' | 'viewer';
+
+// ============ USER MANAGEMENT & PERMISSIONS ============
+
+// All available pages/modules in the application
+export type AppModule =
+  | 'dashboard'
+  | 'pnl'
+  | 'transactions'
+  | 'subscriptions'
+  | 'contractors'
+  | 'team_payroll'
+  | 'recruitment'
+  | 'crm'
+  | 'profit_share'
+  | 'forecast'
+  | 'settings'
+  | 'user_management';
+
+// Permission levels for each module
+export type PermissionLevel = 'none' | 'view' | 'edit' | 'full';
+
+// Module permissions structure
+export type ModulePermissions = Record<AppModule, PermissionLevel>;
+
+// Default permissions by role
+export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, ModulePermissions> = {
+  owner: {
+    dashboard: 'full',
+    pnl: 'full',
+    transactions: 'full',
+    subscriptions: 'full',
+    contractors: 'full',
+    team_payroll: 'full',
+    recruitment: 'full',
+    crm: 'full',
+    profit_share: 'full',
+    forecast: 'full',
+    settings: 'full',
+    user_management: 'full',
+  },
+  admin: {
+    dashboard: 'full',
+    pnl: 'full',
+    transactions: 'full',
+    subscriptions: 'full',
+    contractors: 'full',
+    team_payroll: 'full',
+    recruitment: 'full',
+    crm: 'full',
+    profit_share: 'view',
+    forecast: 'full',
+    settings: 'edit',
+    user_management: 'edit',
+  },
+  manager: {
+    dashboard: 'view',
+    pnl: 'view',
+    transactions: 'edit',
+    subscriptions: 'edit',
+    contractors: 'full',
+    team_payroll: 'view',
+    recruitment: 'full',
+    crm: 'full',
+    profit_share: 'none',
+    forecast: 'view',
+    settings: 'view',
+    user_management: 'none',
+  },
+  employee: {
+    dashboard: 'view',
+    pnl: 'none',
+    transactions: 'view',
+    subscriptions: 'view',
+    contractors: 'edit',
+    team_payroll: 'none',
+    recruitment: 'edit',
+    crm: 'edit',
+    profit_share: 'none',
+    forecast: 'none',
+    settings: 'view',
+    user_management: 'none',
+  },
+  viewer: {
+    dashboard: 'view',
+    pnl: 'view',
+    transactions: 'view',
+    subscriptions: 'view',
+    contractors: 'view',
+    team_payroll: 'none',
+    recruitment: 'view',
+    crm: 'view',
+    profit_share: 'none',
+    forecast: 'view',
+    settings: 'none',
+    user_management: 'none',
+  },
+};
+
+// Module display info
+export const MODULE_INFO: Record<AppModule, { label: string; description: string }> = {
+  dashboard: { label: 'Dashboard', description: 'View main dashboard and KPIs' },
+  pnl: { label: 'P&L', description: 'Profit & Loss statements' },
+  transactions: { label: 'Transactions', description: 'Manage income and expenses' },
+  subscriptions: { label: 'Subscriptions', description: 'Track SaaS subscriptions' },
+  contractors: { label: 'Contractors', description: 'Manage contractors and timesheets' },
+  team_payroll: { label: 'Team & Payroll', description: 'Internal staff and payroll' },
+  recruitment: { label: 'Recruitment', description: 'Job placements and candidates' },
+  crm: { label: 'CRM', description: 'Client relationship management' },
+  profit_share: { label: 'Profit Share', description: 'Partner profit distribution' },
+  forecast: { label: 'Forecast', description: 'Financial projections' },
+  settings: { label: 'Settings', description: 'Application settings' },
+  user_management: { label: 'User Management', description: 'Manage users and permissions' },
+};
+
+// Organization/Company
+export interface Organization {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerEmail: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// App User with permissions
+export interface AppUser {
+  id: string;
+  organizationId: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  permissions: ModulePermissions;
+  isActive: boolean;
+  lastLoginAt?: Date;
+  invitedBy?: string;
+  invitedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// User invitation
+export interface UserInvitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: UserRole;
+  permissions: ModulePermissions;
+  invitedBy: string;
+  invitedByName: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  expiresAt: Date;
+  createdAt?: Date;
+}
+
+// Input types
+export type AppUserInput = Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>;
+export type UserInvitationInput = Omit<UserInvitation, 'id' | 'createdAt'>;
 
 // Supported currencies for contractor payments
 export type CurrencyCode = 'USD' | 'INR' | 'EUR' | 'GBP' | 'CAD' | 'AUD' | 'SGD';
