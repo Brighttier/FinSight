@@ -114,7 +114,7 @@ const VENDOR_CATEGORY_MAP: Record<string, string> = {
   okta: 'Security',
   auth0: 'Security',
   crowdstrike: 'Security',
-  cloudflare: 'Security',
+  // cloudflare already listed under Cloud & Infrastructure
 
   // Finance
   quickbooks: 'Finance',

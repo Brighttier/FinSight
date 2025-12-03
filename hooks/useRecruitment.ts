@@ -277,6 +277,39 @@ export function useRecruitment(options: UseRecruitmentOptions = {}) {
     }
   }, [user?.uid]);
 
+  // Bulk import candidates
+  const addCandidates = useCallback(async (dataList: CandidateInput[]): Promise<{ imported: number; skipped: number; errors: string[] }> => {
+    if (!user?.uid) return { imported: 0, skipped: 0, errors: ['User not authenticated'] };
+
+    const results = { imported: 0, skipped: 0, errors: [] as string[] };
+    const existingEmails = new Set(candidates.map(c => c.email.toLowerCase()));
+
+    for (const data of dataList) {
+      // Skip if email already exists
+      if (existingEmails.has(data.email.toLowerCase())) {
+        results.skipped++;
+        continue;
+      }
+
+      try {
+        await createCandidate(user.uid, data);
+        results.imported++;
+        existingEmails.add(data.email.toLowerCase()); // Track newly added emails
+      } catch (err: any) {
+        results.errors.push(`Failed to import ${data.name}: ${err.message || 'Unknown error'}`);
+      }
+    }
+
+    if (results.imported > 0) {
+      toast.success(`Imported ${results.imported} candidate${results.imported > 1 ? 's' : ''}`);
+    }
+    if (results.skipped > 0) {
+      toast(`Skipped ${results.skipped} duplicate${results.skipped > 1 ? 's' : ''}`, { icon: 'i' });
+    }
+
+    return results;
+  }, [user?.uid, candidates]);
+
   const editCandidate = useCallback(async (id: string, data: Partial<CandidateInput>): Promise<boolean> => {
     try {
       await updateCandidate(id, data);
@@ -603,6 +636,7 @@ export function useRecruitment(options: UseRecruitmentOptions = {}) {
 
     // Candidate CRUD
     addCandidate,
+    addCandidates,
     editCandidate,
     removeCandidate,
 

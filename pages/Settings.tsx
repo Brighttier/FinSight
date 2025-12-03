@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import {
   Link2,
@@ -15,11 +15,15 @@ import {
   X,
   AlertTriangle,
   Shield,
-  FileSpreadsheet
+  FileSpreadsheet,
+  DollarSign,
+  Percent,
+  Wallet
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTransactions } from '../hooks/useTransactions';
 import { useSubscriptions } from '../hooks/useSubscriptions';
+import { useOrganization } from '../hooks/useOrganization';
 import {
   updateUserProfile,
   updateUserEmail,
@@ -35,9 +39,26 @@ const Settings = () => {
   const { user, signOut } = useAuth();
   const { transactions } = useTransactions({ realtime: true });
   const { subscriptions } = useSubscriptions({ realtime: true });
+  const { organization, loading: orgLoading, updateBankBalance, updateRetentionPercentage } = useOrganization();
 
   // Export state
   const [exporting, setExporting] = useState(false);
+
+  // Financial settings state
+  const [editingBankBalance, setEditingBankBalance] = useState(false);
+  const [bankBalanceInput, setBankBalanceInput] = useState('');
+  const [savingBankBalance, setSavingBankBalance] = useState(false);
+  const [editingRetention, setEditingRetention] = useState(false);
+  const [retentionInput, setRetentionInput] = useState('');
+  const [savingRetention, setSavingRetention] = useState(false);
+
+  // Initialize financial inputs when organization loads
+  useEffect(() => {
+    if (organization) {
+      setBankBalanceInput(organization.bankBalance?.toString() || '');
+      setRetentionInput(organization.retentionPercentage?.toString() || '0');
+    }
+  }, [organization]);
 
   // Profile editing state
   const [editingName, setEditingName] = useState(false);
@@ -202,6 +223,43 @@ const Settings = () => {
     }
   };
 
+  const handleSaveBankBalance = async () => {
+    const amount = parseFloat(bankBalanceInput);
+    if (isNaN(amount) || amount < 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    setSavingBankBalance(true);
+    const success = await updateBankBalance(amount);
+    setSavingBankBalance(false);
+    if (success) {
+      setEditingBankBalance(false);
+    }
+  };
+
+  const handleSaveRetention = async () => {
+    const percent = parseFloat(retentionInput);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      toast.error('Please enter a valid percentage (0-100)');
+      return;
+    }
+    setSavingRetention(true);
+    const success = await updateRetentionPercentage(percent);
+    setSavingRetention(false);
+    if (success) {
+      setEditingRetention(false);
+    }
+  };
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h2>
@@ -264,6 +322,154 @@ const Settings = () => {
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Financial Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wallet size={20} /> Financial Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-0">
+            {orgLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : (
+              <>
+                {/* Bank Balance */}
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-emerald-700 font-medium">
+                      <DollarSign size={16} />
+                      Bank Balance
+                    </div>
+                    {!editingBankBalance && (
+                      <button
+                        onClick={() => setEditingBankBalance(true)}
+                        className="p-1 text-emerald-600 hover:bg-emerald-100 rounded"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {editingBankBalance ? (
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-2 text-slate-500">$</span>
+                        <input
+                          type="number"
+                          value={bankBalanceInput}
+                          onChange={(e) => setBankBalanceInput(e.target.value)}
+                          className="w-full pl-7 pr-3 py-2 border border-emerald-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          placeholder="0"
+                          disabled={savingBankBalance}
+                        />
+                      </div>
+                      <button
+                        onClick={handleSaveBankBalance}
+                        disabled={savingBankBalance}
+                        className="p-2 text-green-600 hover:bg-green-100 rounded"
+                      >
+                        {savingBankBalance ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingBankBalance(false);
+                          setBankBalanceInput(organization?.bankBalance?.toString() || '');
+                        }}
+                        disabled={savingBankBalance}
+                        className="p-2 text-slate-400 hover:bg-slate-100 rounded"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-2xl font-bold text-emerald-700">
+                        {organization?.bankBalance !== undefined
+                          ? formatCurrency(organization.bankBalance)
+                          : 'Not set'}
+                      </div>
+                      {organization?.lastBankBalanceUpdate && (
+                        <div className="text-xs text-emerald-600 mt-1">
+                          Last updated: {organization.lastBankBalanceUpdate}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-xs text-emerald-600 mt-2">
+                    Enter your current bank balance for accurate financial tracking
+                  </p>
+                </div>
+
+                {/* Retention Percentage */}
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-purple-700 font-medium">
+                      <Percent size={16} />
+                      Profit Retention
+                    </div>
+                    {!editingRetention && (
+                      <button
+                        onClick={() => setEditingRetention(true)}
+                        className="p-1 text-purple-600 hover:bg-purple-100 rounded"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {editingRetention ? (
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={retentionInput}
+                          onChange={(e) => setRetentionInput(e.target.value)}
+                          className="w-full pr-8 pl-3 py-2 border border-purple-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          placeholder="0"
+                          disabled={savingRetention}
+                        />
+                        <span className="absolute right-3 top-2 text-slate-500">%</span>
+                      </div>
+                      <button
+                        onClick={handleSaveRetention}
+                        disabled={savingRetention}
+                        className="p-2 text-green-600 hover:bg-green-100 rounded"
+                      >
+                        {savingRetention ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingRetention(false);
+                          setRetentionInput(organization?.retentionPercentage?.toString() || '0');
+                        }}
+                        disabled={savingRetention}
+                        className="p-2 text-slate-400 hover:bg-slate-100 rounded"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-2xl font-bold text-purple-700">
+                        {organization?.retentionPercentage ?? 0}%
+                      </div>
+                      <div className="text-xs text-purple-600 mt-1">
+                        {100 - (organization?.retentionPercentage ?? 0)}% available for partner distribution
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-purple-600 mt-2">
+                    Percentage of profit to retain for company operations (not distributed to partners)
+                  </p>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

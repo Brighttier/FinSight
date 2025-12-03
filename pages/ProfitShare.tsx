@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
-import { Plus, Loader2, Pencil, Trash2, X, DollarSign, TrendingUp } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, X, DollarSign, TrendingUp, Percent, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { usePartners } from '../hooks/usePartners';
 import { usePnL } from '../hooks/useTransactions';
 import { useAuth } from '../contexts/AuthContext';
+import { useOrganization } from '../hooks/useOrganization';
 import { getTransactions, getTimesheets, getPayrollRecords } from '../services/firestoreService';
 import { convertToUSD } from '../services/currencyService';
 import type { PartnerInput } from '../types';
@@ -44,6 +46,8 @@ const ProfitShare = () => {
     removePartner,
     distributeProfit,
   } = usePartners({ realtime: true });
+
+  const { organization, loading: orgLoading } = useOrganization();
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -147,19 +151,27 @@ const ProfitShare = () => {
   const [role, setRole] = useState('');
   const [sharePercentage, setSharePercentage] = useState('');
 
-  const loading = pnlLoading || partnersLoading;
-  const poolAmount = Math.max(0, profit);
+  const loading = pnlLoading || partnersLoading || orgLoading;
 
-  // Calculate partner amounts
+  // Get retention settings from organization
+  const retentionPercentage = organization?.retentionPercentage ?? 0;
+
+  // Calculate profit allocation with retention
+  const netProfit = Math.max(0, profit);
+  const retainedAmount = (netProfit * retentionPercentage) / 100;
+  const distributablePool = netProfit - retainedAmount; // This is what partners can share
+  const poolAmount = distributablePool; // For backward compatibility
+
+  // Calculate partner amounts from distributable pool (not total profit)
   const partnersWithAmounts = useMemo(() => {
     return partners
       .filter((p) => p.status === 'active')
       .map((p, index) => ({
         ...p,
-        amount: (poolAmount * p.sharePercentage) / 100,
+        amount: (distributablePool * p.sharePercentage) / 100,
         color: COLORS[index % COLORS.length],
       }));
-  }, [partners, poolAmount]);
+  }, [partners, distributablePool]);
 
   const resetForm = () => {
     setName('');
@@ -367,15 +379,45 @@ const ProfitShare = () => {
           <div className="grid gap-6 md:grid-cols-2">
             <Card className="bg-indigo-900 text-white border-none">
               <CardHeader>
-                <CardTitle className="text-indigo-200">Total Available Pool</CardTitle>
+                <CardTitle className="text-indigo-200">Distributable Pool</CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="text-5xl font-bold mb-4 text-white">{formatCurrency(poolAmount)}</div>
                 <p className="text-indigo-200 text-sm mb-3">
                   {poolAmount > 0
-                    ? `Combined Net Profit (${format(now, 'MMMM yyyy')})`
-                    : 'No profit available this period'}
+                    ? `Available for distribution (${format(now, 'MMMM yyyy')})`
+                    : 'No distributable profit this period'}
                 </p>
+
+                {/* Retention Info */}
+                {retentionPercentage > 0 && netProfit > 0 && (
+                  <div className="mb-4 p-3 bg-indigo-800/50 rounded-lg">
+                    <div className="flex items-center gap-2 text-amber-300 text-xs uppercase tracking-wider mb-2">
+                      <Percent size={12} />
+                      Profit Allocation
+                    </div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-indigo-200">Net Profit</span>
+                      <span className="text-white font-medium">{formatCurrency(netProfit)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-amber-200">Company Reserves ({retentionPercentage}%)</span>
+                      <span className="text-amber-300 font-medium">-{formatCurrency(retainedAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm pt-1 border-t border-indigo-700">
+                      <span className="text-indigo-200">Distributable ({100 - retentionPercentage}%)</span>
+                      <span className="text-white font-medium">{formatCurrency(distributablePool)}</span>
+                    </div>
+                    <Link
+                      to="/settings"
+                      className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-300 hover:text-white"
+                    >
+                      <Settings size={10} />
+                      Adjust retention in Settings
+                    </Link>
+                  </div>
+                )}
+
                 {/* Profit Breakdown */}
                 {(contractorProfit !== 0 || transactionProfit !== 0 || payrollCost !== 0) && (
                   <div className="mt-4 pt-4 border-t border-indigo-700 space-y-2">

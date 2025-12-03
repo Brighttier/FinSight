@@ -6,8 +6,9 @@ import {
   updateSubscription,
   deleteSubscription,
   subscribeToSubscriptions,
+  createActivityLog,
 } from '../services/firestoreService';
-import type { Subscription, SubscriptionInput } from '../types';
+import type { Subscription, SubscriptionInput, ActivityLogInput } from '../types';
 import toast from 'react-hot-toast';
 
 interface UseSubscriptionsOptions {
@@ -61,7 +62,7 @@ export function useSubscriptions(options: UseSubscriptionsOptions = {}) {
   }, [user?.uid, options.realtime, fetchSubscriptions]);
 
   const addSubscription = async (data: SubscriptionInput): Promise<string | null> => {
-    if (!user?.uid) {
+    if (!user?.uid || !user?.email || !user?.name) {
       toast.error('You must be logged in');
       return null;
     }
@@ -69,6 +70,22 @@ export function useSubscriptions(options: UseSubscriptionsOptions = {}) {
     try {
       const id = await createSubscription(user.uid, data);
       toast.success('Subscription added');
+
+      // Log activity
+      const activityData: ActivityLogInput = {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        module: 'subscriptions',
+        action: 'create',
+        entityType: 'subscription',
+        entityId: id,
+        entityName: data.vendor,
+        description: `Added subscription: ${data.vendor} ($${data.cost}/${data.billingCycle})`,
+        timestamp: new Date(),
+      };
+      createActivityLog(activityData).catch(console.error);
+
       if (!options.realtime) {
         await fetchSubscriptions();
       }
@@ -83,9 +100,31 @@ export function useSubscriptions(options: UseSubscriptionsOptions = {}) {
     id: string,
     data: Partial<SubscriptionInput>
   ): Promise<boolean> => {
+    if (!user?.uid || !user?.email || !user?.name) {
+      toast.error('You must be logged in');
+      return false;
+    }
+
     try {
       await updateSubscription(id, data);
       toast.success('Subscription updated');
+
+      // Log activity
+      const activityData: ActivityLogInput = {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        module: 'subscriptions',
+        action: 'update',
+        entityType: 'subscription',
+        entityId: id,
+        entityName: data.vendor,
+        description: `Updated subscription${data.vendor ? `: ${data.vendor}` : ''}`,
+        details: data,
+        timestamp: new Date(),
+      };
+      createActivityLog(activityData).catch(console.error);
+
       if (!options.realtime) {
         await fetchSubscriptions();
       }
@@ -96,10 +135,31 @@ export function useSubscriptions(options: UseSubscriptionsOptions = {}) {
     }
   };
 
-  const removeSubscription = async (id: string): Promise<boolean> => {
+  const removeSubscription = async (id: string, vendor?: string): Promise<boolean> => {
+    if (!user?.uid || !user?.email || !user?.name) {
+      toast.error('You must be logged in');
+      return false;
+    }
+
     try {
       await deleteSubscription(id);
       toast.success('Subscription deleted');
+
+      // Log activity
+      const activityData: ActivityLogInput = {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        module: 'subscriptions',
+        action: 'delete',
+        entityType: 'subscription',
+        entityId: id,
+        entityName: vendor,
+        description: `Deleted subscription${vendor ? `: ${vendor}` : ''}`,
+        timestamp: new Date(),
+      };
+      createActivityLog(activityData).catch(console.error);
+
       if (!options.realtime) {
         await fetchSubscriptions();
       }

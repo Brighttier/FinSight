@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import {
   Plus,
@@ -15,14 +15,24 @@ import {
   Filter,
   Download,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   UserPlus,
   ClipboardList,
   AlertCircle,
   Phone,
   Mail,
   ExternalLink,
+  Import,
+  Upload,
+  FileSpreadsheet,
+  Star,
+  MapPin,
+  DollarSign,
+  Send,
 } from 'lucide-react';
 import { useRecruitment, STATUS_LABELS, STATUS_COLORS, TASK_TYPE_LABELS } from '../hooks/useRecruitment';
+import { useContractors } from '../hooks/useContractors';
 import { format, parseISO } from 'date-fns';
 import type {
   RecruitmentClientInput,
@@ -33,10 +43,27 @@ import type {
   RecruiterTaskInput,
   CandidateStatus,
   RecruiterTaskType,
+  CandidateAvailability,
+  Candidate,
 } from '../types';
 import toast from 'react-hot-toast';
+import { downloadCandidateTemplate, parseCandidateExcel, exportCandidatesToExcel, ParseResult } from '../lib/excelUtils';
 
-type ActiveTab = 'pipeline' | 'tasks' | 'setup';
+type ActiveTab = 'candidates' | 'pipeline' | 'tasks' | 'setup';
+
+const AVAILABILITY_LABELS: Record<CandidateAvailability, string> = {
+  available: 'Available',
+  not_looking: 'Not Looking',
+  placed: 'Placed',
+  blacklisted: 'Blacklisted',
+};
+
+const AVAILABILITY_COLORS: Record<CandidateAvailability, string> = {
+  available: 'bg-green-100 text-green-700',
+  not_looking: 'bg-amber-100 text-amber-700',
+  placed: 'bg-blue-100 text-blue-700',
+  blacklisted: 'bg-red-100 text-red-700',
+};
 
 const Recruitment: React.FC = () => {
   const {
@@ -57,6 +84,7 @@ const Recruitment: React.FC = () => {
     editRecruiter,
     removeRecruiter,
     addCandidate,
+    addCandidates,
     editCandidate,
     removeCandidate,
     addSubmission,
@@ -68,10 +96,34 @@ const Recruitment: React.FC = () => {
     kpis,
   } = useRecruitment({ realtime: true });
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('pipeline');
+  // Get customers from contractors module for import
+  const { customers: contractorCustomers } = useContractors({ realtime: true });
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>('candidates');
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState<'submission' | 'task' | 'client' | 'role' | 'recruiter' | 'candidate'>('submission');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importingCustomers, setImportingCustomers] = useState(false);
+
+  // Candidates tab state
+  const [showCandidateImportModal, setShowCandidateImportModal] = useState(false);
+  const [importParsing, setImportParsing] = useState(false);
+  const [importResult, setImportResult] = useState<ParseResult | null>(null);
+  const [importingCandidates, setImportingCandidates] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [candidatesPage, setCandidatesPage] = useState(1);
+  const [candidatesPerPage, setCandidatesPerPage] = useState(10);
+  const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
+
+  // Candidate filters
+  const [candSearchQuery, setCandSearchQuery] = useState('');
+  const [candFilterSkill, setCandFilterSkill] = useState('');
+  const [candFilterExpMin, setCandFilterExpMin] = useState('');
+  const [candFilterExpMax, setCandFilterExpMax] = useState('');
+  const [candFilterAvailability, setCandFilterAvailability] = useState('');
+  const [candFilterSource, setCandFilterSource] = useState('');
+  const [candFilterLocation, setCandFilterLocation] = useState('');
 
   // Filters
   const [filterClient, setFilterClient] = useState('');
@@ -122,6 +174,20 @@ const Recruitment: React.FC = () => {
   const [candCompany, setCandCompany] = useState('');
   const [candRole, setCandRole] = useState('');
   const [candSource, setCandSource] = useState('');
+  const [candExperience, setCandExperience] = useState('');
+  const [candSkills, setCandSkills] = useState('');
+  const [candCurrentSalary, setCandCurrentSalary] = useState('');
+  const [candExpectedSalary, setCandExpectedSalary] = useState('');
+  const [candNoticePeriod, setCandNoticePeriod] = useState('');
+  const [candLocation, setCandLocation] = useState('');
+  const [candLinkedinUrl, setCandLinkedinUrl] = useState('');
+  const [candEducation, setCandEducation] = useState('');
+  const [candAvailability, setCandAvailability] = useState<CandidateAvailability | ''>('');
+  const [candNotes, setCandNotes] = useState('');
+
+  // Quick submit state
+  const [showQuickSubmitModal, setShowQuickSubmitModal] = useState(false);
+  const [quickSubmitCandidateId, setQuickSubmitCandidateId] = useState('');
 
   // Form states - Job Role
   const [roleTitle, setRoleTitle] = useState('');
@@ -190,6 +256,180 @@ const Recruitment: React.FC = () => {
     return result;
   }, [tasks, filterRecruiter, filterDateFrom, filterDateTo, searchQuery]);
 
+  // Filtered candidates for Candidates tab
+  const filteredCandidates = useMemo(() => {
+    let result = [...candidates];
+
+    if (candSearchQuery) {
+      const q = candSearchQuery.toLowerCase();
+      result = result.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.email.toLowerCase().includes(q) ||
+          (c.skills && c.skills.some(s => s.toLowerCase().includes(q))) ||
+          (c.currentCompany && c.currentCompany.toLowerCase().includes(q)) ||
+          (c.currentRole && c.currentRole.toLowerCase().includes(q))
+      );
+    }
+    if (candFilterSkill) {
+      result = result.filter(
+        (c) => c.skills && c.skills.some(s => s.toLowerCase().includes(candFilterSkill.toLowerCase()))
+      );
+    }
+    if (candFilterExpMin) {
+      const min = parseFloat(candFilterExpMin);
+      result = result.filter((c) => c.experience !== undefined && c.experience >= min);
+    }
+    if (candFilterExpMax) {
+      const max = parseFloat(candFilterExpMax);
+      result = result.filter((c) => c.experience !== undefined && c.experience <= max);
+    }
+    if (candFilterAvailability) {
+      result = result.filter((c) => c.availability === candFilterAvailability);
+    }
+    if (candFilterSource) {
+      result = result.filter(
+        (c) => c.source && c.source.toLowerCase().includes(candFilterSource.toLowerCase())
+      );
+    }
+    if (candFilterLocation) {
+      result = result.filter(
+        (c) => c.location && c.location.toLowerCase().includes(candFilterLocation.toLowerCase())
+      );
+    }
+
+    return result;
+  }, [candidates, candSearchQuery, candFilterSkill, candFilterExpMin, candFilterExpMax, candFilterAvailability, candFilterSource, candFilterLocation]);
+
+  // Paginated candidates
+  const paginatedCandidates = useMemo(() => {
+    const start = (candidatesPage - 1) * candidatesPerPage;
+    return filteredCandidates.slice(start, start + candidatesPerPage);
+  }, [filteredCandidates, candidatesPage, candidatesPerPage]);
+
+  const totalCandidatePages = Math.ceil(filteredCandidates.length / candidatesPerPage);
+
+  // Get unique skills for filter dropdown
+  const allSkills = useMemo(() => {
+    const skills = new Set<string>();
+    candidates.forEach(c => c.skills?.forEach(s => skills.add(s)));
+    return Array.from(skills).sort();
+  }, [candidates]);
+
+  // Get unique sources for filter dropdown
+  const allSources = useMemo(() => {
+    const sources = new Set<string>();
+    candidates.forEach(c => c.source && sources.add(c.source));
+    return Array.from(sources).sort();
+  }, [candidates]);
+
+  // Handle file selection for import
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      toast.error('Please select an Excel file (.xlsx or .xls)');
+      return;
+    }
+
+    setImportParsing(true);
+    try {
+      const result = await parseCandidateExcel(file);
+      setImportResult(result);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to parse Excel file');
+    } finally {
+      setImportParsing(false);
+    }
+  }, []);
+
+  // Handle bulk import
+  const handleBulkImport = useCallback(async () => {
+    if (!importResult || importResult.valid.length === 0) return;
+
+    setImportingCandidates(true);
+    try {
+      const candidatesToImport: CandidateInput[] = importResult.valid.map(({ rowNumber, errors, ...candidate }) => candidate);
+      const result = await addCandidates(candidatesToImport);
+
+      if (result.errors.length > 0) {
+        console.error('Import errors:', result.errors);
+      }
+
+      setShowCandidateImportModal(false);
+      setImportResult(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Import failed');
+    } finally {
+      setImportingCandidates(false);
+    }
+  }, [importResult, addCandidates]);
+
+  // Handle candidate selection toggle
+  const toggleCandidateSelection = useCallback((id: string) => {
+    setSelectedCandidates(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // Select all visible candidates
+  const selectAllCandidates = useCallback(() => {
+    if (selectedCandidates.size === paginatedCandidates.length) {
+      setSelectedCandidates(new Set());
+    } else {
+      setSelectedCandidates(new Set(paginatedCandidates.map(c => c.id)));
+    }
+  }, [paginatedCandidates, selectedCandidates.size]);
+
+  // Delete selected candidates
+  const deleteSelectedCandidates = useCallback(async () => {
+    if (selectedCandidates.size === 0) return;
+    if (!confirm(`Delete ${selectedCandidates.size} selected candidate(s)?`)) return;
+
+    for (const id of selectedCandidates) {
+      await removeCandidate(id);
+    }
+    setSelectedCandidates(new Set());
+  }, [selectedCandidates, removeCandidate]);
+
+  // Export filtered candidates
+  const handleExportCandidates = useCallback(() => {
+    const toExport = selectedCandidates.size > 0
+      ? candidates.filter(c => selectedCandidates.has(c.id))
+      : filteredCandidates;
+
+    if (toExport.length === 0) {
+      toast.error('No candidates to export');
+      return;
+    }
+
+    const filename = `candidates_export_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    exportCandidatesToExcel(toExport, filename);
+    toast.success(`Exported ${toExport.length} candidate(s)`);
+  }, [candidates, filteredCandidates, selectedCandidates]);
+
+  // Clear candidate filters
+  const clearCandidateFilters = useCallback(() => {
+    setCandSearchQuery('');
+    setCandFilterSkill('');
+    setCandFilterExpMin('');
+    setCandFilterExpMax('');
+    setCandFilterAvailability('');
+    setCandFilterSource('');
+    setCandFilterLocation('');
+    setCandidatesPage(1);
+  }, []);
+
   // Reset form
   const resetForm = () => {
     setSubCandidateId('');
@@ -223,6 +463,16 @@ const Recruitment: React.FC = () => {
     setCandCompany('');
     setCandRole('');
     setCandSource('');
+    setCandExperience('');
+    setCandSkills('');
+    setCandCurrentSalary('');
+    setCandExpectedSalary('');
+    setCandNoticePeriod('');
+    setCandLocation('');
+    setCandLinkedinUrl('');
+    setCandEducation('');
+    setCandAvailability('');
+    setCandNotes('');
     setRoleTitle('');
     setRoleClientId('');
     setRoleType('full_time');
@@ -361,6 +611,10 @@ const Recruitment: React.FC = () => {
       return;
     }
 
+    const skillsArray = candSkills
+      ? candSkills.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : undefined;
+
     const data: CandidateInput = {
       name: candName,
       email: candEmail,
@@ -368,6 +622,18 @@ const Recruitment: React.FC = () => {
       currentCompany: candCompany || undefined,
       currentRole: candRole || undefined,
       source: candSource || undefined,
+      experience: candExperience ? parseFloat(candExperience) : undefined,
+      skills: skillsArray,
+      currentSalary: candCurrentSalary ? parseFloat(candCurrentSalary) : undefined,
+      currentSalaryCurrency: candCurrentSalary ? 'USD' : undefined,
+      expectedSalary: candExpectedSalary ? parseFloat(candExpectedSalary) : undefined,
+      expectedSalaryCurrency: candExpectedSalary ? 'USD' : undefined,
+      noticePeriod: candNoticePeriod || undefined,
+      location: candLocation || undefined,
+      linkedinUrl: candLinkedinUrl || undefined,
+      education: candEducation || undefined,
+      availability: candAvailability || undefined,
+      notes: candNotes || undefined,
     };
 
     if (editingId) {
@@ -511,7 +777,8 @@ const Recruitment: React.FC = () => {
       <div className="border-b border-slate-200">
         <nav className="flex gap-4">
           {[
-            { id: 'pipeline', label: 'Client Pipeline', icon: Users },
+            { id: 'candidates', label: 'Candidates', icon: Users },
+            { id: 'pipeline', label: 'Client Pipeline', icon: Briefcase },
             { id: 'tasks', label: 'Recruiter Task Log', icon: ClipboardList },
             { id: 'setup', label: 'Setup', icon: Building2 },
           ].map((tab) => (
@@ -531,102 +798,523 @@ const Recruitment: React.FC = () => {
         </nav>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-3 items-center">
-            <div className="relative flex-1 min-w-[200px] max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+      {/* Filters - shown for pipeline and tasks tabs only */}
+      {activeTab !== 'candidates' && activeTab !== 'setup' && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[200px] max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+
+              <select
+                value={filterClient}
+                onChange={(e) => setFilterClient(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">All Clients</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+
+              <select
+                value={filterRecruiter}
+                onChange={(e) => setFilterRecruiter(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">All Recruiters</option>
+                {recruiters.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+
+              {activeTab === 'pipeline' && (
+                <>
+                  <select
+                    value={filterRole}
+                    onChange={(e) => setFilterRole(e.target.value)}
+                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">All Roles</option>
+                    {jobRoles.map((r) => (
+                      <option key={r.id} value={r.id}>{r.title} - {r.clientName}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">All Statuses</option>
+                    {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+
               <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
               />
+              <span className="text-slate-400">to</span>
+              <input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+              />
+
+              {(filterClient || filterRecruiter || filterStatus || filterRole || filterDateFrom || filterDateTo || searchQuery) && (
+                <button
+                  onClick={() => {
+                    setFilterClient('');
+                    setFilterRecruiter('');
+                    setFilterStatus('');
+                    setFilterRole('');
+                    setFilterDateFrom('');
+                    setFilterDateTo('');
+                    setSearchQuery('');
+                  }}
+                  className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700"
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <select
-              value={filterClient}
-              onChange={(e) => setFilterClient(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">All Clients</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+      {/* Candidates Tab */}
+      {activeTab === 'candidates' && (
+        <div className="space-y-4">
+          {/* Candidates Filter Bar */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap gap-3 items-center">
+                <div className="relative flex-1 min-w-[200px] max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, skills, company..."
+                    value={candSearchQuery}
+                    onChange={(e) => {
+                      setCandSearchQuery(e.target.value);
+                      setCandidatesPage(1);
+                    }}
+                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
 
-            <select
-              value={filterRecruiter}
-              onChange={(e) => setFilterRecruiter(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">All Recruiters</option>
-              {recruiters.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-
-            {activeTab === 'pipeline' && (
-              <>
                 <select
-                  value={filterRole}
-                  onChange={(e) => setFilterRole(e.target.value)}
+                  value={candFilterSkill}
+                  onChange={(e) => {
+                    setCandFilterSkill(e.target.value);
+                    setCandidatesPage(1);
+                  }}
                   className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="">All Roles</option>
-                  {jobRoles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.title} - {r.clientName}</option>
+                  <option value="">All Skills</option>
+                  {allSkills.map((skill) => (
+                    <option key={skill} value={skill}>{skill}</option>
                   ))}
                 </select>
 
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    placeholder="Min Exp"
+                    value={candFilterExpMin}
+                    onChange={(e) => {
+                      setCandFilterExpMin(e.target.value);
+                      setCandidatesPage(1);
+                    }}
+                    className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span className="text-slate-400">-</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={candFilterExpMax}
+                    onChange={(e) => {
+                      setCandFilterExpMax(e.target.value);
+                      setCandidatesPage(1);
+                    }}
+                    className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span className="text-xs text-slate-500">yrs</span>
+                </div>
+
                 <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
+                  value={candFilterAvailability}
+                  onChange={(e) => {
+                    setCandFilterAvailability(e.target.value);
+                    setCandidatesPage(1);
+                  }}
                   className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="">All Statuses</option>
-                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                  <option value="">All Availability</option>
+                  {Object.entries(AVAILABILITY_LABELS).map(([key, label]) => (
                     <option key={key} value={key}>{label}</option>
                   ))}
                 </select>
-              </>
-            )}
 
-            <input
-              type="date"
-              value={filterDateFrom}
-              onChange={(e) => setFilterDateFrom(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-            />
-            <span className="text-slate-400">to</span>
-            <input
-              type="date"
-              value={filterDateTo}
-              onChange={(e) => setFilterDateTo(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-            />
+                <select
+                  value={candFilterSource}
+                  onChange={(e) => {
+                    setCandFilterSource(e.target.value);
+                    setCandidatesPage(1);
+                  }}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">All Sources</option>
+                  {allSources.map((source) => (
+                    <option key={source} value={source}>{source}</option>
+                  ))}
+                </select>
 
-            {(filterClient || filterRecruiter || filterStatus || filterRole || filterDateFrom || filterDateTo || searchQuery) && (
-              <button
-                onClick={() => {
-                  setFilterClient('');
-                  setFilterRecruiter('');
-                  setFilterStatus('');
-                  setFilterRole('');
-                  setFilterDateFrom('');
-                  setFilterDateTo('');
-                  setSearchQuery('');
-                }}
-                className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700"
-              >
-                Clear Filters
-              </button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                <input
+                  type="text"
+                  placeholder="Location"
+                  value={candFilterLocation}
+                  onChange={(e) => {
+                    setCandFilterLocation(e.target.value);
+                    setCandidatesPage(1);
+                  }}
+                  className="w-32 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                />
+
+                {(candSearchQuery || candFilterSkill || candFilterExpMin || candFilterExpMax || candFilterAvailability || candFilterSource || candFilterLocation) && (
+                  <button
+                    onClick={clearCandidateFilters}
+                    className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-slate-100">
+                <button
+                  onClick={downloadCandidateTemplate}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  <FileSpreadsheet size={14} />
+                  Download Template
+                </button>
+                <button
+                  onClick={() => setShowCandidateImportModal(true)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-indigo-600 hover:text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50"
+                >
+                  <Upload size={14} />
+                  Import Excel
+                </button>
+                <button
+                  onClick={handleExportCandidates}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-emerald-600 hover:text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50"
+                >
+                  <Download size={14} />
+                  Export {selectedCandidates.size > 0 ? `(${selectedCandidates.size})` : 'All'}
+                </button>
+                {selectedCandidates.size > 0 && (
+                  <button
+                    onClick={deleteSelectedCandidates}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 border border-red-200 rounded-lg hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    Delete ({selectedCandidates.size})
+                  </button>
+                )}
+                <div className="flex-1" />
+                <button
+                  onClick={() => openFormFor('candidate')}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                >
+                  <Plus size={14} />
+                  Add Candidate
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Candidates Table */}
+          <Card>
+            <CardContent className="p-0">
+              {filteredCandidates.length === 0 ? (
+                <div className="p-8 text-center text-slate-500">
+                  <Users className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                  <p>No candidates found</p>
+                  <div className="mt-4 flex justify-center gap-3">
+                    <button
+                      onClick={() => setShowCandidateImportModal(true)}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      Import from Excel
+                    </button>
+                    <span className="text-slate-300">or</span>
+                    <button
+                      onClick={() => openFormFor('candidate')}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      Add manually
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="text-left px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedCandidates.size === paginatedCandidates.length && paginatedCandidates.length > 0}
+                              onChange={selectAllCandidates}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                          </th>
+                          <th className="text-left px-4 py-3 font-semibold text-slate-600">Name</th>
+                          <th className="text-left px-4 py-3 font-semibold text-slate-600">Contact</th>
+                          <th className="text-left px-4 py-3 font-semibold text-slate-600">Current Role</th>
+                          <th className="text-left px-4 py-3 font-semibold text-slate-600">Experience</th>
+                          <th className="text-left px-4 py-3 font-semibold text-slate-600">Skills</th>
+                          <th className="text-left px-4 py-3 font-semibold text-slate-600">Expected</th>
+                          <th className="text-left px-4 py-3 font-semibold text-slate-600">Status</th>
+                          <th className="text-right px-4 py-3 font-semibold text-slate-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {paginatedCandidates.map((candidate) => (
+                          <tr key={candidate.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedCandidates.has(candidate.id)}
+                                onChange={() => toggleCandidateSelection(candidate.id)}
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-slate-900">{candidate.name}</div>
+                              {candidate.source && (
+                                <div className="text-xs text-slate-400">via {candidate.source}</div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col gap-0.5">
+                                <a href={`mailto:${candidate.email}`} className="text-slate-600 hover:text-indigo-600 text-xs flex items-center gap-1">
+                                  <Mail size={10} />
+                                  {candidate.email}
+                                </a>
+                                {candidate.phone && (
+                                  <span className="text-slate-500 text-xs flex items-center gap-1">
+                                    <Phone size={10} />
+                                    {candidate.phone}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {candidate.currentRole || candidate.currentCompany ? (
+                                <div>
+                                  <div className="text-slate-900">{candidate.currentRole || '-'}</div>
+                                  {candidate.currentCompany && (
+                                    <div className="text-xs text-slate-500">{candidate.currentCompany}</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {candidate.experience !== undefined ? `${candidate.experience} yrs` : '-'}
+                            </td>
+                            <td className="px-4 py-3">
+                              {candidate.skills && candidate.skills.length > 0 ? (
+                                <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                  {candidate.skills.slice(0, 3).map((skill, idx) => (
+                                    <span key={idx} className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">
+                                      {skill}
+                                    </span>
+                                  ))}
+                                  {candidate.skills.length > 3 && (
+                                    <span className="px-1.5 py-0.5 text-slate-400 text-xs">
+                                      +{candidate.skills.length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {candidate.expectedSalary ? (
+                                <div className="flex items-center gap-1 text-slate-600">
+                                  <DollarSign size={12} />
+                                  {candidate.expectedSalary.toLocaleString()}
+                                  {candidate.expectedSalaryCurrency && (
+                                    <span className="text-xs text-slate-400">{candidate.expectedSalaryCurrency}</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {candidate.availability ? (
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${AVAILABILITY_COLORS[candidate.availability]}`}>
+                                  {AVAILABILITY_LABELS[candidate.availability]}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-xs">Not set</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    setQuickSubmitCandidateId(candidate.id);
+                                    setShowQuickSubmitModal(true);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-emerald-600 rounded"
+                                  title="Quick Submit to Job"
+                                >
+                                  <Send size={14} />
+                                </button>
+                                {candidate.linkedinUrl && (
+                                  <a
+                                    href={candidate.linkedinUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 text-slate-400 hover:text-blue-600 rounded"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </a>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setEditingId(candidate.id);
+                                    setFormType('candidate');
+                                    setCandName(candidate.name);
+                                    setCandEmail(candidate.email);
+                                    setCandPhone(candidate.phone || '');
+                                    setCandCompany(candidate.currentCompany || '');
+                                    setCandRole(candidate.currentRole || '');
+                                    setCandSource(candidate.source || '');
+                                    setCandExperience(candidate.experience?.toString() || '');
+                                    setCandSkills(candidate.skills?.join(', ') || '');
+                                    setCandCurrentSalary(candidate.currentSalary?.toString() || '');
+                                    setCandExpectedSalary(candidate.expectedSalary?.toString() || '');
+                                    setCandNoticePeriod(candidate.noticePeriod || '');
+                                    setCandLocation(candidate.location || '');
+                                    setCandLinkedinUrl(candidate.linkedinUrl || '');
+                                    setCandEducation(candidate.education || '');
+                                    setCandAvailability(candidate.availability || '');
+                                    setCandNotes(candidate.notes || '');
+                                    setShowForm(true);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-indigo-600 rounded"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm('Delete this candidate?')) {
+                                      removeCandidate(candidate.id);
+                                    }
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 rounded"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <span>Showing {((candidatesPage - 1) * candidatesPerPage) + 1}-{Math.min(candidatesPage * candidatesPerPage, filteredCandidates.length)} of {filteredCandidates.length}</span>
+                      <select
+                        value={candidatesPerPage}
+                        onChange={(e) => {
+                          setCandidatesPerPage(Number(e.target.value));
+                          setCandidatesPage(1);
+                        }}
+                        className="px-2 py-1 border border-slate-200 rounded text-sm"
+                      >
+                        <option value={10}>10</option>
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                      </select>
+                      <span>per page</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setCandidatesPage(p => Math.max(1, p - 1))}
+                        disabled={candidatesPage === 1}
+                        className="p-1.5 border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      {Array.from({ length: Math.min(5, totalCandidatePages) }, (_, i) => {
+                        let pageNum;
+                        if (totalCandidatePages <= 5) {
+                          pageNum = i + 1;
+                        } else if (candidatesPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (candidatesPage >= totalCandidatePages - 2) {
+                          pageNum = totalCandidatePages - 4 + i;
+                        } else {
+                          pageNum = candidatesPage - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCandidatesPage(pageNum)}
+                            className={`px-3 py-1 text-sm rounded ${
+                              candidatesPage === pageNum
+                                ? 'bg-indigo-600 text-white'
+                                : 'border border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      <button
+                        onClick={() => setCandidatesPage(p => Math.min(totalCandidatePages, p + 1))}
+                        disabled={candidatesPage === totalCandidatePages || totalCandidatePages === 0}
+                        className="p-1.5 border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Client Pipeline Tab */}
       {activeTab === 'pipeline' && (
@@ -878,17 +1566,38 @@ const Recruitment: React.FC = () => {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Clients ({clients.length})</CardTitle>
-              <button
-                onClick={() => openFormFor('client')}
-                className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700"
-              >
-                <Plus size={14} />
-                Add
-              </button>
+              <div className="flex items-center gap-2">
+                {contractorCustomers.length > 0 && (
+                  <button
+                    onClick={() => setShowImportModal(true)}
+                    className="inline-flex items-center gap-1 text-sm text-amber-600 hover:text-amber-700"
+                  >
+                    <Import size={14} />
+                    Import
+                  </button>
+                )}
+                <button
+                  onClick={() => openFormFor('client')}
+                  className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700"
+                >
+                  <Plus size={14} />
+                  Add
+                </button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               {clients.length === 0 ? (
-                <p className="p-4 text-center text-slate-500 text-sm">No clients yet</p>
+                <p className="p-4 text-center text-slate-500 text-sm">
+                  No clients yet
+                  {contractorCustomers.length > 0 && (
+                    <button
+                      onClick={() => setShowImportModal(true)}
+                      className="ml-1 text-amber-600 hover:text-amber-700 underline"
+                    >
+                      Import from Contractors
+                    </button>
+                  )}
+                </p>
               ) : (
                 <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
                   {clients.map((c) => (
@@ -1351,32 +2060,46 @@ const Recruitment: React.FC = () => {
 
               {formType === 'candidate' && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
-                    <input
-                      type="text"
-                      value={candName}
-                      onChange={(e) => setCandName(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                      <input
+                        type="text"
+                        value={candName}
+                        onChange={(e) => setCandName(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Email *</label>
+                      <input
+                        type="email"
+                        value={candEmail}
+                        onChange={(e) => setCandEmail(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Email *</label>
-                    <input
-                      type="email"
-                      value={candEmail}
-                      onChange={(e) => setCandEmail(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
-                    <input
-                      type="tel"
-                      value={candPhone}
-                      onChange={(e) => setCandPhone(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={candPhone}
+                        onChange={(e) => setCandPhone(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">LinkedIn URL</label>
+                      <input
+                        type="url"
+                        value={candLinkedinUrl}
+                        onChange={(e) => setCandLinkedinUrl(e.target.value)}
+                        placeholder="https://linkedin.com/in/..."
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -1398,13 +2121,116 @@ const Recruitment: React.FC = () => {
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Experience (years)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        value={candExperience}
+                        onChange={(e) => setCandExperience(e.target.value)}
+                        placeholder="e.g., 5"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
+                      <input
+                        type="text"
+                        value={candLocation}
+                        onChange={(e) => setCandLocation(e.target.value)}
+                        placeholder="e.g., San Francisco, CA"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Notice Period</label>
+                      <input
+                        type="text"
+                        value={candNoticePeriod}
+                        onChange={(e) => setCandNoticePeriod(e.target.value)}
+                        placeholder="e.g., 30 days"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Source</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Skills (comma-separated)</label>
                     <input
                       type="text"
-                      value={candSource}
-                      onChange={(e) => setCandSource(e.target.value)}
-                      placeholder="e.g., LinkedIn, Referral"
+                      value={candSkills}
+                      onChange={(e) => setCandSkills(e.target.value)}
+                      placeholder="e.g., React, TypeScript, Node.js"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Current Salary (USD)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={candCurrentSalary}
+                        onChange={(e) => setCandCurrentSalary(e.target.value)}
+                        placeholder="e.g., 120000"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Expected Salary (USD)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={candExpectedSalary}
+                        onChange={(e) => setCandExpectedSalary(e.target.value)}
+                        placeholder="e.g., 150000"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Education</label>
+                      <input
+                        type="text"
+                        value={candEducation}
+                        onChange={(e) => setCandEducation(e.target.value)}
+                        placeholder="e.g., BS Computer Science"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Source</label>
+                      <input
+                        type="text"
+                        value={candSource}
+                        onChange={(e) => setCandSource(e.target.value)}
+                        placeholder="e.g., LinkedIn, Referral"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Availability</label>
+                    <select
+                      value={candAvailability}
+                      onChange={(e) => setCandAvailability(e.target.value as CandidateAvailability | '')}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">Select availability</option>
+                      {Object.entries(AVAILABILITY_LABELS).map(([key, label]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+                    <textarea
+                      value={candNotes}
+                      onChange={(e) => setCandNotes(e.target.value)}
+                      rows={2}
+                      placeholder="Additional notes about the candidate..."
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -1485,6 +2311,473 @@ const Recruitment: React.FC = () => {
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
               >
                 {editingId ? 'Update' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import from Contractors Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-900">Import Clients from Contractors</h3>
+              <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4">
+              <p className="text-sm text-slate-600 mb-4">
+                Select customers from your Contractors module to import as Recruitment clients.
+                Already imported clients are marked.
+              </p>
+              <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                {contractorCustomers.map((customer) => {
+                  const alreadyImported = clients.some(
+                    (c) => c.name.toLowerCase() === customer.name.toLowerCase()
+                  );
+                  return (
+                    <label
+                      key={customer.id}
+                      className={`flex items-center gap-3 p-3 hover:bg-slate-50 cursor-pointer ${
+                        alreadyImported ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={alreadyImported}
+                        data-customer-id={customer.id}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-900">{customer.name}</div>
+                        {customer.contactPerson && (
+                          <div className="text-xs text-slate-500">{customer.contactPerson}</div>
+                        )}
+                      </div>
+                      {alreadyImported && (
+                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                          Already imported
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 p-4 bg-slate-50 border-t border-slate-100 rounded-b-xl">
+              <button
+                onClick={() => setShowImportModal(false)}
+                className="px-4 py-2 text-slate-600 hover:text-slate-700 text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const checkboxes = document.querySelectorAll<HTMLInputElement>(
+                    'input[data-customer-id]:checked'
+                  );
+                  if (checkboxes.length === 0) {
+                    toast.error('Select at least one customer to import');
+                    return;
+                  }
+                  setImportingCustomers(true);
+                  let imported = 0;
+                  for (const checkbox of checkboxes) {
+                    const customerId = checkbox.getAttribute('data-customer-id');
+                    const customer = contractorCustomers.find((c) => c.id === customerId);
+                    if (customer) {
+                      const clientData: RecruitmentClientInput = {
+                        name: customer.name,
+                        contactPerson: customer.contactPerson || '',
+                        email: customer.email || '',
+                        phone: customer.phone || '',
+                        industry: '',
+                        status: 'active',
+                      };
+                      await addClient(clientData);
+                      imported++;
+                    }
+                  }
+                  setImportingCustomers(false);
+                  setShowImportModal(false);
+                  toast.success(`Imported ${imported} client${imported > 1 ? 's' : ''}`);
+                }}
+                disabled={importingCustomers}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+              >
+                {importingCustomers && <Loader2 size={14} className="animate-spin" />}
+                Import Selected
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Candidate Import Modal */}
+      {showCandidateImportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-900">Import Candidates from Excel</h3>
+              <button
+                onClick={() => {
+                  setShowCandidateImportModal(false);
+                  setImportResult(null);
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                  }
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 flex-1 overflow-y-auto">
+              {/* File Upload Area */}
+              <div
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                  importResult ? 'border-slate-200 bg-slate-50' : 'border-indigo-200 hover:border-indigo-300 bg-indigo-50/50'
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const file = e.dataTransfer.files[0];
+                  if (file) {
+                    const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                    handleFileSelect(fakeEvent);
+                  }
+                }}
+              >
+                {importParsing ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+                    <p className="text-slate-600">Parsing file...</p>
+                  </div>
+                ) : importResult ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <FileSpreadsheet className="h-8 w-8 text-emerald-600" />
+                    <p className="text-slate-900 font-medium">File loaded successfully</p>
+                    <button
+                      onClick={() => {
+                        setImportResult(null);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = '';
+                        }
+                      }}
+                      className="text-sm text-indigo-600 hover:underline"
+                    >
+                      Choose different file
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="h-8 w-8 text-indigo-400 mx-auto mb-2" />
+                    <p className="text-slate-600 mb-2">Drop Excel file here or click to browse</p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      id="candidate-file-input"
+                    />
+                    <label
+                      htmlFor="candidate-file-input"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer text-sm font-medium"
+                    >
+                      Select File
+                    </label>
+                  </>
+                )}
+              </div>
+
+              {/* Download Template Link */}
+              <div className="mt-4 text-center">
+                <button
+                  onClick={downloadCandidateTemplate}
+                  className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700"
+                >
+                  <FileSpreadsheet size={14} />
+                  Download template for correct format
+                </button>
+              </div>
+
+              {/* Parse Results */}
+              {importResult && (
+                <div className="mt-6 space-y-4">
+                  {/* Summary */}
+                  <div className="flex gap-4 text-sm">
+                    <div className="flex-1 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                      <p className="text-emerald-700 font-medium">{importResult.valid.length} valid</p>
+                      <p className="text-emerald-600 text-xs">Ready to import</p>
+                    </div>
+                    {importResult.invalid.length > 0 && (
+                      <div className="flex-1 p-3 bg-red-50 rounded-lg border border-red-200">
+                        <p className="text-red-700 font-medium">{importResult.invalid.length} invalid</p>
+                        <p className="text-red-600 text-xs">Will be skipped</p>
+                      </div>
+                    )}
+                    <div className="flex-1 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <p className="text-slate-700 font-medium">{importResult.totalRows} total</p>
+                      <p className="text-slate-600 text-xs">Rows in file</p>
+                    </div>
+                  </div>
+
+                  {/* Preview Table */}
+                  {importResult.valid.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-slate-700 mb-2">
+                        Preview (first 5 rows):
+                      </p>
+                      <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium text-slate-600">Name</th>
+                              <th className="text-left px-3 py-2 font-medium text-slate-600">Email</th>
+                              <th className="text-left px-3 py-2 font-medium text-slate-600">Skills</th>
+                              <th className="text-left px-3 py-2 font-medium text-slate-600">Experience</th>
+                              <th className="text-left px-3 py-2 font-medium text-slate-600">Expected Salary</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {importResult.valid.slice(0, 5).map((cand, idx) => (
+                              <tr key={idx}>
+                                <td className="px-3 py-2 text-slate-900">{cand.name}</td>
+                                <td className="px-3 py-2 text-slate-600">{cand.email}</td>
+                                <td className="px-3 py-2 text-slate-600">
+                                  {cand.skills?.slice(0, 2).join(', ') || '-'}
+                                  {cand.skills && cand.skills.length > 2 && '...'}
+                                </td>
+                                <td className="px-3 py-2 text-slate-600">
+                                  {cand.experience !== undefined ? `${cand.experience} yrs` : '-'}
+                                </td>
+                                <td className="px-3 py-2 text-slate-600">
+                                  {cand.expectedSalary
+                                    ? `${cand.expectedSalary.toLocaleString()} ${cand.expectedSalaryCurrency || ''}`
+                                    : '-'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Invalid Rows */}
+                  {importResult.invalid.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-red-700 mb-2">
+                        Rows with issues (will be skipped):
+                      </p>
+                      <div className="bg-red-50 rounded-lg p-3 text-xs text-red-700 max-h-32 overflow-y-auto space-y-1">
+                        {importResult.invalid.map((cand, idx) => (
+                          <div key={idx}>
+                            <span className="font-medium">Row {cand.rowNumber}:</span>{' '}
+                            {cand.errors.join(', ')}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 p-4 bg-slate-50 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  setShowCandidateImportModal(false);
+                  setImportResult(null);
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                  }
+                }}
+                className="px-4 py-2 text-slate-600 hover:text-slate-700 text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkImport}
+                disabled={!importResult || importResult.valid.length === 0 || importingCandidates}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {importingCandidates && <Loader2 size={14} className="animate-spin" />}
+                Import {importResult?.valid.length || 0} Candidate{importResult?.valid.length !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Submit Modal */}
+      {showQuickSubmitModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-900">Quick Submit Candidate</h3>
+              <button
+                onClick={() => {
+                  setShowQuickSubmitModal(false);
+                  setQuickSubmitCandidateId('');
+                  setSubClientId('');
+                  setSubJobRoleId('');
+                  setSubRecruiterId('');
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {/* Candidate Info */}
+              {(() => {
+                const selectedCandidate = candidates.find(c => c.id === quickSubmitCandidateId);
+                if (!selectedCandidate) return null;
+                return (
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <div className="font-medium text-slate-900">{selectedCandidate.name}</div>
+                    <div className="text-sm text-slate-500">{selectedCandidate.email}</div>
+                    {selectedCandidate.currentRole && selectedCandidate.currentCompany && (
+                      <div className="text-sm text-slate-600 mt-1">
+                        {selectedCandidate.currentRole} at {selectedCandidate.currentCompany}
+                      </div>
+                    )}
+                    {selectedCandidate.skills && selectedCandidate.skills.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {selectedCandidate.skills.slice(0, 5).map((skill, idx) => (
+                          <span key={idx} className="px-1.5 py-0.5 bg-slate-200 text-slate-600 text-xs rounded">
+                            {skill}
+                          </span>
+                        ))}
+                        {selectedCandidate.skills.length > 5 && (
+                          <span className="text-xs text-slate-400">+{selectedCandidate.skills.length - 5} more</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Client Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Select Client *</label>
+                <select
+                  value={subClientId}
+                  onChange={(e) => {
+                    setSubClientId(e.target.value);
+                    setSubJobRoleId('');
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select client</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Job Role Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Select Job Role *</label>
+                <select
+                  value={subJobRoleId}
+                  onChange={(e) => setSubJobRoleId(e.target.value)}
+                  disabled={!subClientId}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
+                >
+                  <option value="">Select job role</option>
+                  {jobRoles
+                    .filter((r) => r.clientId === subClientId && r.status === 'open')
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.title} {r.priority === 'high' ? '(High Priority)' : ''}
+                      </option>
+                    ))}
+                </select>
+                {subClientId && jobRoles.filter((r) => r.clientId === subClientId && r.status === 'open').length === 0 && (
+                  <p className="mt-1 text-xs text-amber-600">No open roles for this client</p>
+                )}
+              </div>
+
+              {/* Recruiter Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Recruiter *</label>
+                <select
+                  value={subRecruiterId}
+                  onChange={(e) => setSubRecruiterId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select recruiter</option>
+                  {recruiters.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 p-4 bg-slate-50 border-t border-slate-100 rounded-b-xl">
+              <button
+                onClick={() => {
+                  setShowQuickSubmitModal(false);
+                  setQuickSubmitCandidateId('');
+                  setSubClientId('');
+                  setSubJobRoleId('');
+                  setSubRecruiterId('');
+                }}
+                className="px-4 py-2 text-slate-600 hover:text-slate-700 text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!quickSubmitCandidateId || !subClientId || !subJobRoleId || !subRecruiterId) {
+                    toast.error('Please fill in all required fields');
+                    return;
+                  }
+
+                  const candidate = candidates.find((c) => c.id === quickSubmitCandidateId);
+                  const client = clients.find((c) => c.id === subClientId);
+                  const role = jobRoles.find((r) => r.id === subJobRoleId);
+                  const recruiter = recruiters.find((r) => r.id === subRecruiterId);
+
+                  if (!candidate || !client || !role || !recruiter) {
+                    toast.error('Invalid selection');
+                    return;
+                  }
+
+                  const data: CandidateSubmissionInput = {
+                    candidateId: candidate.id,
+                    candidateName: candidate.name,
+                    candidateEmail: candidate.email,
+                    clientId: client.id,
+                    clientName: client.name,
+                    jobRoleId: role.id,
+                    jobRoleTitle: role.title,
+                    recruiterId: recruiter.id,
+                    recruiterName: recruiter.name,
+                    status: 'submitted_to_client',
+                    dateSubmitted: format(new Date(), 'yyyy-MM-dd'),
+                  };
+
+                  await addSubmission(data);
+                  setShowQuickSubmitModal(false);
+                  setQuickSubmitCandidateId('');
+                  setSubClientId('');
+                  setSubJobRoleId('');
+                  setSubRecruiterId('');
+                  toast.success(`${candidate.name} submitted to ${role.title} at ${client.name}`);
+                }}
+                disabled={!quickSubmitCandidateId || !subClientId || !subJobRoleId || !subRecruiterId}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <Send size={14} />
+                Submit Candidate
               </button>
             </div>
           </div>

@@ -279,6 +279,16 @@ service cloud.firestore {
       allow delete: if isAuthenticated();
     }
 
+    // ============ ACTIVITY LOGS ============
+
+    // Activity Logs collection
+    match /activityLogs/{logId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if false; // Activity logs should not be updated
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
     // Deny all other access by default
     match /{document=**} {
       allow read, write: if false;

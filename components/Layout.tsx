@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -9,16 +9,18 @@ import {
   Settings,
   LogOut,
   Landmark,
-  PlusCircle,
+  Plus,
   Users,
   UserCircle,
   UserSearch,
   Building2,
   ShieldCheck,
   Lock,
+  List,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserManagement } from '../hooks/useUserManagement';
+import { QuickAddTransaction } from './QuickAddTransaction';
 import type { AppModule } from '../types';
 import toast from 'react-hot-toast';
 
@@ -65,6 +67,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const { currentAppUser, canAccess } = useUserManagement();
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -118,7 +121,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="px-3 mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-400">
               Management
             </div>
-            <SidebarItem to="/costs/new" icon={PlusCircle} label="Manual Entry" disabled={!hasAccess('transactions')} />
+            <SidebarItem to="/costs/new" icon={List} label="All Transactions" disabled={!hasAccess('transactions')} />
             <SidebarItem to="/subscriptions" icon={CreditCard} label="Subscriptions" disabled={!hasAccess('subscriptions')} />
             <SidebarItem to="/contractors" icon={Users} label="Contractors" disabled={!hasAccess('contractors')} />
             <SidebarItem to="/team" icon={UserCircle} label="Team & Payroll" disabled={!hasAccess('team_payroll')} />
@@ -151,6 +154,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
              Financial Intelligence Dashboard
             </h1>
             <div className="ml-auto flex items-center gap-4">
+                {hasAccess('transactions') && (
+                  <button
+                    onClick={() => setShowQuickAdd(true)}
+                    className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-full hover:bg-indigo-700 transition-colors shadow-sm"
+                    title="Add Transaction"
+                  >
+                    <Plus size={18} />
+                    <span className="hidden sm:inline">Add</span>
+                  </button>
+                )}
                 <div className="text-xs text-slate-500 hidden md:block">
                   {user?.email}
                 </div>
@@ -163,6 +176,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           {children}
         </div>
       </main>
+
+      {/* Quick Add Transaction Modal */}
+      <QuickAddTransaction
+        isOpen={showQuickAdd}
+        onClose={() => setShowQuickAdd(false)}
+      />
     </div>
   );
 };

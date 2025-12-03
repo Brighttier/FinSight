@@ -8,8 +8,9 @@ import {
   subscribeToTransactions,
   getTimesheets,
   getPayrollRecords,
+  createActivityLog,
 } from '../services/firestoreService';
-import type { Transaction, TransactionInput, ChartDataPoint } from '../types';
+import type { Transaction, TransactionInput, ChartDataPoint, ActivityLogInput } from '../types';
 import { convertToUSD } from '../services/currencyService';
 import toast from 'react-hot-toast';
 
@@ -76,7 +77,7 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
   }, [user?.uid, options.realtime, fetchTransactions]);
 
   const addTransaction = async (data: TransactionInput): Promise<string | null> => {
-    if (!user?.uid) {
+    if (!user?.uid || !user?.email || !user?.name) {
       toast.error('You must be logged in');
       return null;
     }
@@ -84,6 +85,22 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
     try {
       const id = await createTransaction(user.uid, data);
       toast.success('Transaction added');
+
+      // Log activity
+      const activityData: ActivityLogInput = {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        module: 'transactions',
+        action: 'create',
+        entityType: 'transaction',
+        entityId: id,
+        entityName: data.description,
+        description: `Created ${data.type} transaction: ${data.description} ($${data.amount.toFixed(2)})`,
+        timestamp: new Date(),
+      };
+      createActivityLog(activityData).catch(console.error);
+
       if (!options.realtime) {
         await fetchTransactions();
       }
@@ -98,9 +115,31 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
     id: string,
     data: Partial<TransactionInput>
   ): Promise<boolean> => {
+    if (!user?.uid || !user?.email || !user?.name) {
+      toast.error('You must be logged in');
+      return false;
+    }
+
     try {
       await updateTransaction(id, data);
       toast.success('Transaction updated');
+
+      // Log activity
+      const activityData: ActivityLogInput = {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        module: 'transactions',
+        action: 'update',
+        entityType: 'transaction',
+        entityId: id,
+        entityName: data.description,
+        description: `Updated transaction${data.description ? `: ${data.description}` : ''}`,
+        details: data,
+        timestamp: new Date(),
+      };
+      createActivityLog(activityData).catch(console.error);
+
       if (!options.realtime) {
         await fetchTransactions();
       }
@@ -111,10 +150,31 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
     }
   };
 
-  const removeTransaction = async (id: string): Promise<boolean> => {
+  const removeTransaction = async (id: string, description?: string): Promise<boolean> => {
+    if (!user?.uid || !user?.email || !user?.name) {
+      toast.error('You must be logged in');
+      return false;
+    }
+
     try {
       await deleteTransaction(id);
       toast.success('Transaction deleted');
+
+      // Log activity
+      const activityData: ActivityLogInput = {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        module: 'transactions',
+        action: 'delete',
+        entityType: 'transaction',
+        entityId: id,
+        entityName: description,
+        description: `Deleted transaction${description ? `: ${description}` : ''}`,
+        timestamp: new Date(),
+      };
+      createActivityLog(activityData).catch(console.error);
+
       if (!options.realtime) {
         await fetchTransactions();
       }
@@ -137,6 +197,7 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
 }
 
 // Hook for calculating cash flow data for charts
+// Now includes contractor timesheets and payroll for accurate totals
 export function useCashFlow(days: number = 30) {
   const { user } = useAuth();
   const [cashFlow, setCashFlow] = useState<ChartDataPoint[]>([]);
@@ -158,18 +219,28 @@ export function useCashFlow(days: number = 30) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
     const fetchData = async () => {
       try {
         setLoading(true);
-        const transactions = await getTransactions(user.uid, {
-          startDate: startDate.toISOString().split('T')[0],
-          endDate: endDate.toISOString().split('T')[0],
-          status: 'posted',
-        });
+
+        // Fetch transactions, timesheets, and payroll in parallel
+        const [transactions, timesheets, payrollRecords] = await Promise.all([
+          getTransactions(user.uid, {
+            startDate: startDateStr,
+            endDate: endDateStr,
+            status: 'posted',
+          }),
+          getTimesheets(user.uid),
+          getPayrollRecords(user.uid),
+        ]);
 
         // Group by date
         const grouped: Record<string, { revenue: number; expenses: number }> = {};
 
+        // Add transaction data
         transactions.forEach((t) => {
           const date = t.date.split('T')[0];
           if (!grouped[date]) {
@@ -180,6 +251,39 @@ export function useCashFlow(days: number = 30) {
           } else {
             grouped[date].expenses += t.amount;
           }
+        });
+
+        // Filter timesheets by date range and add to totals
+        // Timesheets are monthly, so we use the month to approximate
+        const filteredTimesheets = timesheets.filter((t) => {
+          const tsMonthStart = `${t.month}-01`;
+          const tsMonthEnd = `${t.month}-31`;
+          return tsMonthEnd >= startDateStr && tsMonthStart <= endDateStr;
+        });
+
+        // Filter payroll by date range (paid only)
+        const filteredPayroll = payrollRecords.filter((p) => {
+          if (p.status !== 'paid') return false;
+          const payrollMonthStart = `${p.month}-01`;
+          const payrollMonthEnd = `${p.month}-31`;
+          return payrollMonthEnd >= startDateStr && payrollMonthStart <= endDateStr;
+        });
+
+        // Calculate contractor revenue and costs from timesheets
+        let contractorRevenue = 0;
+        let contractorCost = 0;
+        filteredTimesheets.forEach((ts) => {
+          contractorRevenue += ts.externalRevenue || 0;
+          contractorCost += ts.internalCostUSD ?? ts.internalCost ?? 0;
+        });
+
+        // Calculate payroll costs
+        let payrollCost = 0;
+        filteredPayroll.forEach((p) => {
+          const amountUSD = p.currency && p.currency !== 'USD'
+            ? convertToUSD(p.netAmount, p.currency)
+            : p.netAmount;
+          payrollCost += amountUSD;
         });
 
         // Convert to chart data points
@@ -194,13 +298,16 @@ export function useCashFlow(days: number = 30) {
 
         setCashFlow(chartData);
 
-        // Calculate totals
-        const totalRevenue = transactions
+        // Calculate totals (including contractor and payroll)
+        const transactionRevenue = transactions
           .filter((t) => t.type === 'revenue')
           .reduce((sum, t) => sum + t.amount, 0);
-        const totalExpenses = transactions
+        const transactionExpenses = transactions
           .filter((t) => t.type === 'expense')
           .reduce((sum, t) => sum + t.amount, 0);
+
+        const totalRevenue = transactionRevenue + contractorRevenue;
+        const totalExpenses = transactionExpenses + contractorCost + payrollCost;
 
         setTotals({
           revenue: totalRevenue,

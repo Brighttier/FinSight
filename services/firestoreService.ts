@@ -65,6 +65,8 @@ import type {
   ModulePermissions,
   UserRole,
   DEFAULT_ROLE_PERMISSIONS,
+  ActivityLog,
+  ActivityLogInput,
 } from '../types';
 
 // Helper to convert Firestore timestamps to Date
@@ -2355,4 +2357,131 @@ export async function initializeOrganizationForUser(
   });
 
   return { organizationId: orgId, appUserId };
+}
+
+// ============ ACTIVITY LOGS ============
+
+export async function createActivityLog(data: ActivityLogInput): Promise<string> {
+  const cleanData = removeUndefinedValues(data);
+  const docRef = await addDoc(collection(db, 'activityLogs'), {
+    ...cleanData,
+    timestamp: data.timestamp || new Date(),
+    createdAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function getActivityLogs(
+  userId: string,
+  options?: {
+    module?: string;
+    action?: string;
+    dateFrom?: Date;
+    dateTo?: Date;
+    limitCount?: number;
+  }
+): Promise<ActivityLog[]> {
+  const constraints: QueryConstraint[] = [
+    where('userId', '==', userId),
+  ];
+
+  if (options?.limitCount) {
+    constraints.push(limit(options.limitCount));
+  }
+
+  const q = query(collection(db, 'activityLogs'), ...constraints);
+  const snapshot = await getDocs(q);
+
+  let logs = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      timestamp: convertTimestamp(data.timestamp),
+      createdAt: convertTimestamp(data.createdAt),
+    } as ActivityLog;
+  });
+
+  // Filter in memory
+  if (options?.module) {
+    logs = logs.filter((l) => l.module === options.module);
+  }
+  if (options?.action) {
+    logs = logs.filter((l) => l.action === options.action);
+  }
+  if (options?.dateFrom) {
+    logs = logs.filter((l) => l.timestamp && l.timestamp >= options.dateFrom!);
+  }
+  if (options?.dateTo) {
+    logs = logs.filter((l) => l.timestamp && l.timestamp <= options.dateTo!);
+  }
+
+  // Sort by timestamp desc
+  return logs.sort((a, b) => {
+    const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return timeB - timeA;
+  });
+}
+
+export function subscribeToActivityLogs(
+  userId: string,
+  callback: (logs: ActivityLog[]) => void,
+  limitCount: number = 50
+): () => void {
+  const q = query(
+    collection(db, 'activityLogs'),
+    where('userId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const logs = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          timestamp: convertTimestamp(data.timestamp),
+          createdAt: convertTimestamp(data.createdAt),
+        } as ActivityLog;
+      });
+      // Sort by timestamp desc and limit
+      const sortedLogs = logs
+        .sort((a, b) => {
+          const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return timeB - timeA;
+        })
+        .slice(0, limitCount);
+      callback(sortedLogs);
+    },
+    (error) => {
+      console.error('Error subscribing to activity logs:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function deleteActivityLog(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'activityLogs', id));
+}
+
+// Utility to clean up old activity logs (older than X days)
+export async function cleanupOldActivityLogs(
+  userId: string,
+  daysToKeep: number = 30
+): Promise<number> {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+
+  const logs = await getActivityLogs(userId, { dateTo: cutoffDate });
+
+  let deletedCount = 0;
+  for (const log of logs) {
+    await deleteActivityLog(log.id);
+    deletedCount++;
+  }
+
+  return deletedCount;
 }

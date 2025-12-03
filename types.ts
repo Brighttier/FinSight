@@ -121,9 +121,17 @@ export interface Organization {
   name: string;
   ownerId: string;
   ownerEmail: string;
+  // Financial settings
+  bankBalance?: number;
+  lastBankBalanceUpdate?: string; // ISO date string
+  retentionPercentage?: number; // 0-100, percentage of profit to retain (not distribute)
+  distributionNotes?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
+
+// Organization financial update input
+export type OrganizationFinancialsInput = Pick<Organization, 'bankBalance' | 'lastBankBalanceUpdate' | 'retentionPercentage' | 'distributionNotes'>;
 
 // App User with permissions
 export interface AppUser {
@@ -497,6 +505,8 @@ export interface Recruiter {
   updatedAt?: Date;
 }
 
+export type CandidateAvailability = 'available' | 'not_looking' | 'placed' | 'blacklisted';
+
 export interface Candidate {
   id: string;
   userId: string;
@@ -512,6 +522,19 @@ export interface Candidate {
   linkedinUrl?: string;
   source?: string; // e.g., LinkedIn, Referral, Job Board
   notes?: string;
+  // Extended fields for candidate database
+  currentSalary?: number;
+  currentSalaryCurrency?: CurrencyCode;
+  expectedSalary?: number;
+  expectedSalaryCurrency?: CurrencyCode;
+  noticePeriod?: string; // e.g., "30 days", "Immediate"
+  location?: string;
+  preferredLocations?: string[];
+  education?: string;
+  portfolioUrl?: string;
+  availability?: CandidateAvailability;
+  rating?: 1 | 2 | 3 | 4 | 5;
+  lastContactDate?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -695,3 +718,51 @@ export type CRMClientInput = Omit<CRMClient, 'id' | 'userId' | 'createdAt' | 'up
 export type CRMDealInput = Omit<CRMDeal, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type CRMInteractionInput = Omit<CRMInteraction, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type CRMNoteInput = Omit<CRMNote, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+
+// ============ ACTIVITY LOG MODULE ============
+
+export type ActivityModule =
+  | 'transactions'
+  | 'subscriptions'
+  | 'contractors'
+  | 'team_payroll'
+  | 'recruitment'
+  | 'crm'
+  | 'profit_share'
+  | 'settings'
+  | 'user_management';
+
+export type ActivityAction =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'view'
+  | 'submit'
+  | 'approve'
+  | 'reject'
+  | 'complete'
+  | 'cancel'
+  | 'upload'
+  | 'download'
+  | 'login'
+  | 'logout';
+
+export interface ActivityLog {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  module: ActivityModule;
+  action: ActivityAction;
+  entityType: string; // e.g., 'transaction', 'contractor', 'candidate'
+  entityId?: string;
+  entityName?: string;
+  description: string;
+  details?: Record<string, any>; // Additional context (old/new values, etc.)
+  ipAddress?: string;
+  userAgent?: string;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export type ActivityLogInput = Omit<ActivityLog, 'id' | 'createdAt'>;
