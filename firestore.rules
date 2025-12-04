@@ -289,6 +289,28 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
+    // ============ PAYMENTS ============
+
+    // Payments collection - tracks individual payments against transactions/timesheets
+    match /payments/{paymentId} {
+      // Helper to validate payment data
+      function isValidPayment() {
+        let data = request.resource.data;
+        return data.keys().hasAll(['userId', 'amount', 'paymentDate', 'createdBy'])
+          && data.amount > 0
+          && (data.transactionId != null || data.timesheetId != null);
+      }
+
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && isValidPayment();
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
     // Deny all other access by default
     match /{document=**} {
       allow read, write: if false;

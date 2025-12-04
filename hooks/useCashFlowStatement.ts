@@ -23,6 +23,13 @@ export interface AgingItem {
   daysOutstanding: number;
   type: 'transaction' | 'timesheet';
   customerName?: string;
+  // Invoice tracking
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  // Payment tracking
+  totalPaid?: number;
+  remainingBalance: number;
+  paymentStatus?: 'unpaid' | 'partial' | 'paid';
 }
 
 export interface AgingBucket {
@@ -131,7 +138,8 @@ function calculateAgingBucket(items: AgingItem[], today: Date): AgingBucket[] {
     else if (days <= 90) bucketIndex = 3;
     else bucketIndex = 4;
 
-    buckets[bucketIndex].amount += item.amount;
+    // Use remainingBalance for bucket totals (accounts for partial payments)
+    buckets[bucketIndex].amount += item.remainingBalance;
     buckets[bucketIndex].count += 1;
     buckets[bucketIndex].items.push(item);
   });
@@ -379,15 +387,22 @@ export function useCashFlowStatement(options: UseCashFlowStatementOptions) {
     transactions
       .filter((t) => t.type === 'revenue' && t.paymentStatus !== 'paid' && t.status === 'posted')
       .forEach((t) => {
-        const invoiceDate = parseISO(t.date);
+        const invoiceDate = parseISO(t.invoiceDate || t.date);
         const daysOutstanding = differenceInDays(today, invoiceDate);
+        const totalPaid = t.totalPaid || t.amountPaid || 0;
+        const remainingBalance = t.amount - totalPaid;
         arItems.push({
           id: t.id,
           description: t.description,
           date: t.date,
-          amount: t.amount - (t.amountPaid || 0),
+          amount: t.amount,
           daysOutstanding,
           type: 'transaction',
+          invoiceNumber: t.invoiceNumber,
+          invoiceDate: t.invoiceDate || t.date,
+          totalPaid,
+          remainingBalance,
+          paymentStatus: t.paymentStatus || 'unpaid',
         });
       });
 
@@ -395,21 +410,30 @@ export function useCashFlowStatement(options: UseCashFlowStatementOptions) {
     timesheets
       .filter((ts) => ts.invoiceStatus !== 'paid' && ts.status === 'approved')
       .forEach((ts) => {
-        const invoiceDate = ts.invoiceDate ? parseISO(ts.invoiceDate) : parseISO(`${ts.month}-01`);
+        const invoiceDateStr = ts.invoiceDate || `${ts.month}-01`;
+        const invoiceDate = parseISO(invoiceDateStr);
         const daysOutstanding = differenceInDays(today, invoiceDate);
+        const totalAmount = ts.externalRevenue || 0;
+        const totalPaid = ts.customerAmountPaid || 0;
+        const remainingBalance = totalAmount - totalPaid;
         arItems.push({
           id: ts.id,
           description: `${ts.contractorName} - ${ts.month}`,
-          date: ts.invoiceDate || `${ts.month}-01`,
-          amount: (ts.externalRevenue || 0) - (ts.customerAmountPaid || 0),
+          date: invoiceDateStr,
+          amount: totalAmount,
           daysOutstanding,
           type: 'timesheet',
           customerName: ts.customerName,
+          invoiceNumber: ts.invoiceNumber,
+          invoiceDate: invoiceDateStr,
+          totalPaid,
+          remainingBalance,
+          paymentStatus: ts.invoiceStatus === 'partial' ? 'partial' : 'unpaid',
         });
       });
 
     const accountsReceivable = calculateAgingBucket(arItems, today);
-    const totalAR = arItems.reduce((sum, item) => sum + item.amount, 0);
+    const totalAR = arItems.reduce((sum, item) => sum + item.remainingBalance, 0);
 
     // ============ ACCOUNTS PAYABLE (Unpaid Bills) ============
 
@@ -417,17 +441,22 @@ export function useCashFlowStatement(options: UseCashFlowStatementOptions) {
 
     // Unpaid expense transactions
     transactions
-      .filter((t) => t.type === 'expense' && t.paymentStatus === 'unpaid' && t.status === 'posted')
+      .filter((t) => t.type === 'expense' && t.paymentStatus !== 'paid' && t.status === 'posted')
       .forEach((t) => {
         const invoiceDate = parseISO(t.date);
         const daysOutstanding = differenceInDays(today, invoiceDate);
+        const totalPaid = t.totalPaid || t.amountPaid || 0;
+        const remainingBalance = t.amount - totalPaid;
         apItems.push({
           id: t.id,
           description: t.description,
           date: t.date,
-          amount: t.amount - (t.amountPaid || 0),
+          amount: t.amount,
           daysOutstanding,
           type: 'transaction',
+          totalPaid,
+          remainingBalance,
+          paymentStatus: t.paymentStatus || 'unpaid',
         });
       });
 
@@ -435,15 +464,20 @@ export function useCashFlowStatement(options: UseCashFlowStatementOptions) {
     timesheets
       .filter((ts) => ts.contractorPaymentStatus !== 'paid' && ts.status === 'approved')
       .forEach((ts) => {
-        const invoiceDate = parseISO(`${ts.month}-01`);
+        const invoiceDateStr = `${ts.month}-01`;
+        const invoiceDate = parseISO(invoiceDateStr);
         const daysOutstanding = differenceInDays(today, invoiceDate);
+        const totalAmount = ts.internalCostUSD || ts.internalCost || 0;
         apItems.push({
           id: ts.id,
           description: `${ts.contractorName} - ${ts.month}`,
-          date: `${ts.month}-01`,
-          amount: ts.internalCostUSD || ts.internalCost || 0,
+          date: invoiceDateStr,
+          amount: totalAmount,
           daysOutstanding,
           type: 'timesheet',
+          totalPaid: 0,
+          remainingBalance: totalAmount,
+          paymentStatus: 'unpaid',
         });
       });
 
@@ -451,7 +485,8 @@ export function useCashFlowStatement(options: UseCashFlowStatementOptions) {
     payrollRecords
       .filter((p) => p.status === 'pending')
       .forEach((p) => {
-        const invoiceDate = parseISO(`${p.month}-01`);
+        const invoiceDateStr = `${p.month}-01`;
+        const invoiceDate = parseISO(invoiceDateStr);
         const daysOutstanding = differenceInDays(today, invoiceDate);
         const amountUSD = p.currency && p.currency !== 'USD'
           ? convertToUSD(p.netAmount, p.currency)
@@ -459,15 +494,18 @@ export function useCashFlowStatement(options: UseCashFlowStatementOptions) {
         apItems.push({
           id: p.id,
           description: `Payroll: ${p.teamMemberName} - ${p.month}`,
-          date: `${p.month}-01`,
+          date: invoiceDateStr,
           amount: amountUSD,
           daysOutstanding,
           type: 'transaction',
+          totalPaid: 0,
+          remainingBalance: amountUSD,
+          paymentStatus: 'unpaid',
         });
       });
 
     const accountsPayable = calculateAgingBucket(apItems, today);
-    const totalAP = apItems.reduce((sum, item) => sum + item.amount, 0);
+    const totalAP = apItems.reduce((sum, item) => sum + item.remainingBalance, 0);
 
     // ============ METRICS ============
 
@@ -638,4 +676,12 @@ export const INVOICE_STATUS_COLORS: Record<string, string> = {
   invoiced: 'bg-blue-100 text-blue-700',
   paid: 'bg-green-100 text-green-700',
   partial: 'bg-amber-100 text-amber-700',
+};
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bank_transfer: 'Bank Transfer',
+  check: 'Check',
+  credit_card: 'Credit Card',
+  cash: 'Cash',
+  other: 'Other',
 };

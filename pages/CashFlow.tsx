@@ -15,14 +15,21 @@ import {
   ChevronUp,
   CheckCircle,
   X,
+  History,
+  CreditCard,
 } from 'lucide-react';
 import {
   useCashFlowStatement,
   type AgingItem,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_STATUS_LABELS,
+  PAYMENT_STATUS_COLORS,
 } from '../hooks/useCashFlowStatement';
 import { useTransactions } from '../hooks/useTransactions';
+import { usePayments } from '../hooks/usePayments';
 import { updateTimesheet } from '../services/firestoreService';
 import toast from 'react-hot-toast';
+import type { PaymentMethod, PaymentInput } from '../types';
 import {
   format,
   startOfMonth,
@@ -60,14 +67,25 @@ const CashFlow = () => {
   const [showARDetails, setShowARDetails] = useState(false);
   const [showAPDetails, setShowAPDetails] = useState(false);
 
-  // Mark as Paid modal state
+  // Record Payment modal state
   const [markingPaidItem, setMarkingPaidItem] = useState<AgingItem | null>(null);
   const [markingPaidType, setMarkingPaidType] = useState<'ar' | 'ap' | null>(null);
   const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
   const [isMarkingPaid, setIsMarkingPaid] = useState(false);
+
+  // Payment History modal state
+  const [historyItem, setHistoryItem] = useState<AgingItem | null>(null);
+  const [historyType, setHistoryType] = useState<'ar' | 'ap' | null>(null);
 
   // Get editTransaction from useTransactions
   const { editTransaction } = useTransactions({ realtime: false });
+
+  // Get payment functions
+  const { addPayment } = usePayments({ realtime: true });
 
   // Calculate date range
   const { startDate, endDate, label } = useMemo(() => {
@@ -185,48 +203,93 @@ const CashFlow = () => {
     URL.revokeObjectURL(url);
   };
 
-  // Open Mark as Paid modal
+  // Open Record Payment modal
   const openMarkAsPaid = (item: AgingItem, type: 'ar' | 'ap') => {
     setMarkingPaidItem(item);
     setMarkingPaidType(type);
     setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+    setPaymentAmount(item.remainingBalance.toFixed(2));
+    setPaymentMethod('bank_transfer');
+    setPaymentReference('');
+    setPaymentNotes('');
   };
 
-  // Handle Mark as Paid
+  // Open Payment History modal
+  const openPaymentHistory = (item: AgingItem, type: 'ar' | 'ap') => {
+    setHistoryItem(item);
+    setHistoryType(type);
+  };
+
+  // Handle Record Payment
   const handleMarkAsPaid = async () => {
     if (!markingPaidItem || !markingPaidType) return;
+
+    const amount = parseFloat(paymentAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid payment amount');
+      return;
+    }
+
+    if (amount > markingPaidItem.remainingBalance) {
+      toast.error('Payment amount exceeds remaining balance');
+      return;
+    }
+
     setIsMarkingPaid(true);
 
     try {
+      // Create a payment record
+      const paymentData: PaymentInput = {
+        amount,
+        paymentDate,
+        paymentMethod,
+        paymentReference: paymentReference || undefined,
+        notes: paymentNotes || undefined,
+        createdBy: '', // Will be set by hook
+      };
+
+      // Link to the right entity
       if (markingPaidItem.type === 'transaction') {
-        // Update transaction payment status
+        paymentData.transactionId = markingPaidItem.id;
+      } else {
+        paymentData.timesheetId = markingPaidItem.id;
+      }
+
+      // Add the payment record
+      await addPayment(paymentData);
+
+      // Calculate new totals
+      const newTotalPaid = (markingPaidItem.totalPaid || 0) + amount;
+      const isFullyPaid = newTotalPaid >= markingPaidItem.amount;
+
+      // Update the original entity's payment status
+      if (markingPaidItem.type === 'transaction') {
         await editTransaction(markingPaidItem.id, {
-          paymentStatus: 'paid',
-          paymentDate: paymentDate,
-          amountPaid: markingPaidItem.amount,
+          paymentStatus: isFullyPaid ? 'paid' : 'partial',
+          paymentDate: isFullyPaid ? paymentDate : undefined,
+          totalPaid: newTotalPaid,
         });
       } else if (markingPaidItem.type === 'timesheet') {
-        // Update timesheet - different fields for AR vs AP
         if (markingPaidType === 'ar') {
-          // Customer paid us - update invoice status
+          // Customer paid us
           await updateTimesheet(markingPaidItem.id, {
-            invoiceStatus: 'paid',
-            customerPaymentDate: paymentDate,
-            customerAmountPaid: markingPaidItem.amount,
+            invoiceStatus: isFullyPaid ? 'paid' : 'partial',
+            customerPaymentDate: isFullyPaid ? paymentDate : undefined,
+            customerAmountPaid: newTotalPaid,
           });
         } else {
-          // We paid contractor
+          // We paid contractor (typically full payment)
           await updateTimesheet(markingPaidItem.id, {
-            contractorPaymentStatus: 'paid',
-            contractorPaymentDate: paymentDate,
+            contractorPaymentStatus: isFullyPaid ? 'paid' : 'unpaid',
+            contractorPaymentDate: isFullyPaid ? paymentDate : undefined,
           });
         }
       }
 
       toast.success(
         markingPaidType === 'ar'
-          ? 'Payment received recorded'
-          : 'Payment made recorded'
+          ? `Payment of ${formatCurrencyDetailed(amount)} recorded`
+          : `Payment of ${formatCurrencyDetailed(amount)} recorded`
       );
       setMarkingPaidItem(null);
       setMarkingPaidType(null);
@@ -585,9 +648,12 @@ const CashFlow = () => {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs text-slate-500 uppercase">
+                      <th className="text-left py-2">Invoice</th>
                       <th className="text-left py-2">Description</th>
                       <th className="text-right py-2">Days</th>
-                      <th className="text-right py-2">Amount</th>
+                      <th className="text-right py-2">Total</th>
+                      <th className="text-right py-2">Paid</th>
+                      <th className="text-right py-2">Remaining</th>
                       <th className="text-right py-2">Action</th>
                     </tr>
                   </thead>
@@ -598,7 +664,17 @@ const CashFlow = () => {
                       .slice(0, 10)
                       .map((item) => (
                         <tr key={item.id} className="border-t border-slate-100">
-                          <td className="py-2 text-slate-700">{item.description}</td>
+                          <td className="py-2 text-slate-600 text-xs">
+                            {item.invoiceNumber || '-'}
+                          </td>
+                          <td className="py-2">
+                            <div className="text-slate-700">{item.description}</div>
+                            {item.paymentStatus && item.paymentStatus !== 'unpaid' && (
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${PAYMENT_STATUS_COLORS[item.paymentStatus]}`}>
+                                {PAYMENT_STATUS_LABELS[item.paymentStatus]}
+                              </span>
+                            )}
+                          </td>
                           <td className={`text-right py-2 ${
                             item.daysOutstanding > 60 ? 'text-red-600' :
                             item.daysOutstanding > 30 ? 'text-amber-600' :
@@ -606,16 +682,33 @@ const CashFlow = () => {
                           }`}>
                             {item.daysOutstanding}
                           </td>
-                          <td className="text-right py-2 font-medium text-slate-900">
+                          <td className="text-right py-2 text-slate-600">
                             {formatCurrency(item.amount)}
                           </td>
+                          <td className="text-right py-2 text-green-600">
+                            {item.totalPaid ? formatCurrency(item.totalPaid) : '-'}
+                          </td>
+                          <td className="text-right py-2 font-medium text-slate-900">
+                            {formatCurrency(item.remainingBalance)}
+                          </td>
                           <td className="text-right py-2">
-                            <button
-                              onClick={() => openMarkAsPaid(item, 'ar')}
-                              className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors"
-                            >
-                              Mark Paid
-                            </button>
+                            <div className="flex gap-1 justify-end">
+                              {(item.totalPaid || 0) > 0 && (
+                                <button
+                                  onClick={() => openPaymentHistory(item, 'ar')}
+                                  className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors"
+                                  title="View Payment History"
+                                >
+                                  <History size={14} />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => openMarkAsPaid(item, 'ar')}
+                                className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors"
+                              >
+                                Record Payment
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -678,7 +771,9 @@ const CashFlow = () => {
                     <tr className="text-xs text-slate-500 uppercase">
                       <th className="text-left py-2">Description</th>
                       <th className="text-right py-2">Days</th>
-                      <th className="text-right py-2">Amount</th>
+                      <th className="text-right py-2">Total</th>
+                      <th className="text-right py-2">Paid</th>
+                      <th className="text-right py-2">Remaining</th>
                       <th className="text-right py-2">Action</th>
                     </tr>
                   </thead>
@@ -689,7 +784,14 @@ const CashFlow = () => {
                       .slice(0, 10)
                       .map((item) => (
                         <tr key={item.id} className="border-t border-slate-100">
-                          <td className="py-2 text-slate-700">{item.description}</td>
+                          <td className="py-2">
+                            <div className="text-slate-700">{item.description}</div>
+                            {item.paymentStatus && item.paymentStatus !== 'unpaid' && (
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${PAYMENT_STATUS_COLORS[item.paymentStatus]}`}>
+                                {PAYMENT_STATUS_LABELS[item.paymentStatus]}
+                              </span>
+                            )}
+                          </td>
                           <td className={`text-right py-2 ${
                             item.daysOutstanding > 60 ? 'text-red-600' :
                             item.daysOutstanding > 30 ? 'text-amber-600' :
@@ -697,16 +799,33 @@ const CashFlow = () => {
                           }`}>
                             {item.daysOutstanding}
                           </td>
-                          <td className="text-right py-2 font-medium text-slate-900">
+                          <td className="text-right py-2 text-slate-600">
                             {formatCurrency(item.amount)}
                           </td>
+                          <td className="text-right py-2 text-green-600">
+                            {item.totalPaid ? formatCurrency(item.totalPaid) : '-'}
+                          </td>
+                          <td className="text-right py-2 font-medium text-slate-900">
+                            {formatCurrency(item.remainingBalance)}
+                          </td>
                           <td className="text-right py-2">
-                            <button
-                              onClick={() => openMarkAsPaid(item, 'ap')}
-                              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                            >
-                              Mark Paid
-                            </button>
+                            <div className="flex gap-1 justify-end">
+                              {(item.totalPaid || 0) > 0 && (
+                                <button
+                                  onClick={() => openPaymentHistory(item, 'ap')}
+                                  className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors"
+                                  title="View Payment History"
+                                >
+                                  <History size={14} />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => openMarkAsPaid(item, 'ap')}
+                                className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                              >
+                                Record Payment
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -775,10 +894,10 @@ const CashFlow = () => {
         </Card>
       </div>
 
-      {/* Mark as Paid Modal */}
+      {/* Record Payment Modal */}
       {markingPaidItem && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-900">
                 Record Payment {markingPaidType === 'ar' ? 'Received' : 'Made'}
@@ -794,29 +913,129 @@ const CashFlow = () => {
               </button>
             </div>
 
+            {/* Invoice Details Box */}
+            <div className="bg-slate-50 rounded-lg p-4 mb-4">
+              <h4 className="text-sm font-medium text-slate-700 mb-2">Invoice Details</h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                {markingPaidItem.invoiceNumber && (
+                  <div>
+                    <span className="text-slate-500">Invoice #:</span>
+                    <span className="ml-2 font-medium text-slate-900">{markingPaidItem.invoiceNumber}</span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-slate-500">Date:</span>
+                  <span className="ml-2 font-medium text-slate-900">
+                    {format(new Date(markingPaidItem.invoiceDate || markingPaidItem.date), 'MMM d, yyyy')}
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-slate-500">Description:</span>
+                  <span className="ml-2 font-medium text-slate-900">{markingPaidItem.description}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Total Amount:</span>
+                  <span className="ml-2 font-bold text-slate-900">{formatCurrencyDetailed(markingPaidItem.amount)}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Already Paid:</span>
+                  <span className="ml-2 font-medium text-green-600">
+                    {formatCurrencyDetailed(markingPaidItem.totalPaid || 0)}
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-slate-500">Remaining:</span>
+                  <span className="ml-2 font-bold text-lg text-indigo-600">
+                    {formatCurrencyDetailed(markingPaidItem.remainingBalance)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-4">
+              {/* Payment Amount */}
               <div>
-                <label className="text-sm text-slate-500">Description</label>
-                <p className="font-medium text-slate-900">{markingPaidItem.description}</p>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Payment Amount <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-500">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={markingPaidItem.remainingBalance}
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="mt-1 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentAmount(markingPaidItem.remainingBalance.toFixed(2))}
+                    className="text-xs text-indigo-600 hover:text-indigo-700"
+                  >
+                    Pay full balance ({formatCurrencyDetailed(markingPaidItem.remainingBalance)})
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="text-sm text-slate-500">Amount</label>
-                <p className="font-bold text-lg text-slate-900">{formatCurrency(markingPaidItem.amount)}</p>
+              {/* Payment Date & Method in 2 columns */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Payment Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Payment Method
+                  </label>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
+              {/* Payment Reference */}
               <div>
-                <label className="text-sm text-slate-500">Outstanding</label>
-                <p className="text-sm text-slate-600">{markingPaidItem.daysOutstanding} days</p>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-slate-700">Payment Date</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Reference (optional)
+                </label>
                 <input
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  type="text"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  placeholder="Check #, Wire reference, etc."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Notes (optional)
+                </label>
+                <textarea
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Additional notes..."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>
             </div>
@@ -833,7 +1052,7 @@ const CashFlow = () => {
               </button>
               <button
                 onClick={handleMarkAsPaid}
-                disabled={isMarkingPaid}
+                disabled={isMarkingPaid || !paymentAmount || parseFloat(paymentAmount) <= 0}
                 className={`flex-1 px-4 py-2 rounded-lg font-medium text-white transition-colors flex items-center justify-center gap-2 ${
                   markingPaidType === 'ar'
                     ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
@@ -847,8 +1066,8 @@ const CashFlow = () => {
                   </>
                 ) : (
                   <>
-                    <CheckCircle size={16} />
-                    Confirm Payment
+                    <CreditCard size={16} />
+                    Record Payment
                   </>
                 )}
               </button>
@@ -856,6 +1075,117 @@ const CashFlow = () => {
           </div>
         </div>
       )}
+
+      {/* Payment History Modal */}
+      {historyItem && (
+        <PaymentHistoryModal
+          item={historyItem}
+          type={historyType!}
+          onClose={() => {
+            setHistoryItem(null);
+            setHistoryType(null);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+// Payment History Modal Component
+const PaymentHistoryModal: React.FC<{
+  item: AgingItem;
+  type: 'ar' | 'ap';
+  onClose: () => void;
+}> = ({ item, type, onClose }) => {
+  const { payments, loading } = usePayments({
+    transactionId: item.type === 'transaction' ? item.id : undefined,
+    timesheetId: item.type === 'timesheet' ? item.id : undefined,
+    realtime: true,
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">
+            Payment History
+            {item.invoiceNumber && <span className="text-sm font-normal text-slate-500 ml-2">- {item.invoiceNumber}</span>}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Invoice Summary */}
+        <div className="bg-slate-50 rounded-lg p-3 mb-4">
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-500">Invoice Total:</span>
+            <span className="font-bold text-slate-900">{formatCurrencyDetailed(item.amount)}</span>
+          </div>
+          <div className="flex justify-between text-sm mt-1">
+            <span className="text-slate-500">Total Paid:</span>
+            <span className="font-bold text-green-600">{formatCurrencyDetailed(item.totalPaid || 0)}</span>
+          </div>
+          <div className="flex justify-between text-sm mt-1">
+            <span className="text-slate-500">Remaining:</span>
+            <span className="font-bold text-indigo-600">{formatCurrencyDetailed(item.remainingBalance)}</span>
+          </div>
+        </div>
+
+        {/* Payment List */}
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          </div>
+        ) : payments.length === 0 ? (
+          <div className="text-center py-8 text-slate-500">
+            No payments recorded yet
+          </div>
+        ) : (
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr className="text-xs text-slate-500 uppercase">
+                  <th className="text-left py-2 px-3">Date</th>
+                  <th className="text-left py-2 px-3">Method</th>
+                  <th className="text-left py-2 px-3">Reference</th>
+                  <th className="text-right py-2 px-3">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((payment) => (
+                  <tr key={payment.id} className="border-t border-slate-100">
+                    <td className="py-2 px-3 text-slate-700">
+                      {format(new Date(payment.paymentDate), 'MMM d, yyyy')}
+                    </td>
+                    <td className="py-2 px-3 text-slate-600">
+                      {payment.paymentMethod ? PAYMENT_METHOD_LABELS[payment.paymentMethod] : '-'}
+                    </td>
+                    <td className="py-2 px-3 text-slate-500 text-xs">
+                      {payment.paymentReference || '-'}
+                    </td>
+                    <td className="py-2 px-3 text-right font-medium text-green-600">
+                      {formatCurrencyDetailed(payment.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex justify-end mt-4">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

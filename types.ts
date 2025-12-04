@@ -227,6 +227,28 @@ export type TransactionCategory =
 
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentTerms = 'immediate' | 'net_15' | 'net_30' | 'net_45' | 'net_60' | 'net_90';
+export type PaymentMethod = 'bank_transfer' | 'check' | 'credit_card' | 'cash' | 'other';
+
+// Payment record - tracks individual payments against transactions/timesheets
+export interface Payment {
+  id: string;
+  userId: string;
+  // Link to original record (one of these will be set)
+  transactionId?: string;
+  timesheetId?: string;
+  // Payment details
+  amount: number;
+  paymentDate: string; // ISO date
+  paymentMethod?: PaymentMethod;
+  paymentReference?: string; // Check #, wire ref, etc.
+  notes?: string;
+  // Metadata
+  createdBy: string; // User ID who recorded payment
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export type PaymentInput = Omit<Payment, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 
 export interface Transaction {
   id: string;
@@ -239,13 +261,17 @@ export interface Transaction {
   status: 'draft' | 'posted';
   receiptUrl?: string;
   notes?: string;
+  // Invoice tracking (for revenue)
+  invoiceNumber?: string;
+  invoiceDate?: string; // ISO date when invoice was sent
   // Payment tracking for cash basis accounting
   paymentStatus?: PaymentStatus;
   paymentDate?: string; // ISO date when payment was received/made
   paymentTerms?: PaymentTerms;
-  amountPaid?: number; // For partial payments
+  amountPaid?: number; // For partial payments - legacy, use payments collection
+  totalPaid?: number; // Sum of all payments from payments collection
   expectedPaymentDate?: string; // Calculated from date + terms
-  paymentReference?: string; // Check number, wire reference, etc.
+  paymentReference?: string; // Check number, wire reference, etc. - legacy
   createdAt?: Date;
   updatedAt?: Date;
 }

@@ -47,6 +47,10 @@ const ManualEntry = () => {
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<'draft' | 'posted'>('posted');
 
+  // Invoice tracking fields (for revenue)
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState('');
+
   // Payment tracking fields (for cash flow)
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('paid');
   const [paymentDate, setPaymentDate] = useState('');
@@ -76,6 +80,11 @@ const ManualEntry = () => {
       newErrors.description = 'Description must be at least 3 characters';
     }
 
+    // Invoice number is required for revenue transactions
+    if (type === 'revenue' && !invoiceNumber.trim()) {
+      newErrors.invoiceNumber = 'Invoice number is required for revenue';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -87,6 +96,8 @@ const ManualEntry = () => {
     setCategory('');
     setDescription('');
     setStatus('posted');
+    setInvoiceNumber('');
+    setInvoiceDate('');
     setPaymentStatus('paid');
     setPaymentDate('');
     setPaymentTerms('');
@@ -102,6 +113,8 @@ const ManualEntry = () => {
     setCategory(transaction.category);
     setDescription(transaction.description);
     setStatus(transaction.status);
+    setInvoiceNumber(transaction.invoiceNumber || '');
+    setInvoiceDate(transaction.invoiceDate?.split('T')[0] || '');
     setPaymentStatus(transaction.paymentStatus || 'paid');
     setPaymentDate(transaction.paymentDate?.split('T')[0] || '');
     setPaymentTerms(transaction.paymentTerms || '');
@@ -148,6 +161,9 @@ const ManualEntry = () => {
       description: description.trim(),
       type,
       status,
+      // Invoice tracking fields (for revenue)
+      invoiceNumber: type === 'revenue' ? invoiceNumber.trim() : undefined,
+      invoiceDate: type === 'revenue' ? (invoiceDate || date) : undefined,
       // Payment tracking fields for cash flow
       paymentStatus,
       paymentDate: paymentStatus === 'paid' ? (paymentDate || date) : undefined,
@@ -473,6 +489,41 @@ const ManualEntry = () => {
               />
               {errors.description && <p className="text-xs text-red-500">{errors.description}</p>}
             </div>
+
+            {/* Invoice Tracking Section (Revenue only) */}
+            {type === 'revenue' && (
+              <div className="border-t border-slate-200 pt-6">
+                <h4 className="text-sm font-semibold text-slate-700 mb-4">Invoice Details</h4>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Invoice Number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={invoiceNumber}
+                      onChange={(e) => setInvoiceNumber(e.target.value)}
+                      className={`flex h-10 w-full rounded-md border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                        errors.invoiceNumber ? 'border-red-500' : 'border-slate-300'
+                      }`}
+                      placeholder="e.g. INV-2024-001"
+                    />
+                    {errors.invoiceNumber && <p className="text-xs text-red-500">{errors.invoiceNumber}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Invoice Date</label>
+                    <input
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => setInvoiceDate(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-xs text-slate-400">Leave blank to use transaction date</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Payment Tracking Section */}
             <div className="border-t border-slate-200 pt-6">

@@ -42,6 +42,9 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
   const [category, setCategory] = useState<TransactionCategory | ''>('');
   const [description, setDescription] = useState('');
 
+  // Invoice tracking state (for revenue)
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+
   // Payment tracking state (for cash flow)
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('paid');
   const [paymentDate, setPaymentDate] = useState('');
@@ -75,6 +78,11 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
       newErrors.description = 'Description must be at least 3 characters';
     }
 
+    // Invoice number is required for revenue transactions
+    if (type === 'revenue' && !invoiceNumber.trim()) {
+      newErrors.invoiceNumber = 'Invoice number is required for revenue';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -85,6 +93,7 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
     setAmount('');
     setCategory('');
     setDescription('');
+    setInvoiceNumber('');
     setPaymentStatus('paid');
     setPaymentDate('');
     setPaymentTerms('');
@@ -163,6 +172,9 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
       type,
       status: 'posted',
       receiptUrl,
+      // Invoice tracking fields (for revenue)
+      invoiceNumber: type === 'revenue' ? invoiceNumber.trim() : undefined,
+      invoiceDate: type === 'revenue' ? date : undefined,
       // Payment tracking fields for cash flow
       paymentStatus,
       paymentDate: paymentStatus === 'paid' ? (paymentDate || date) : undefined,
@@ -361,6 +373,29 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
                   <p className="text-red-500 text-xs mt-1">{errors.description}</p>
                 )}
               </div>
+
+              {/* Invoice Number (Revenue only) */}
+              {type === 'revenue' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Invoice Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 ${
+                      errors.invoiceNumber
+                        ? 'border-red-300 focus:ring-red-500'
+                        : 'border-slate-200 focus:ring-indigo-500'
+                    }`}
+                    placeholder="e.g., INV-2024-001"
+                  />
+                  {errors.invoiceNumber && (
+                    <p className="text-red-500 text-xs mt-1">{errors.invoiceNumber}</p>
+                  )}
+                </div>
+              )}
 
               {/* Payment Tracking (Collapsible) */}
               <details className="group">
