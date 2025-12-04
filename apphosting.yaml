@@ -21,3 +21,5 @@ env:
     value: 1:341467003750:web:cde4c7ffc428b647d166a7
   - variable: VITE_FIREBASE_MEASUREMENT_ID
     value: G-T7FGHZGETP
+  - variable: VITE_GEMINI_API_KEY
+    secret: GEMINI_API_KEY
