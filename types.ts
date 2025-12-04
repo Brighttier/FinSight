@@ -214,6 +214,7 @@ export type TransactionCategory =
   | 'travel'
   | 'utilities'
   | 'legal'
+  | 'taxes'
   | 'reimbursements'
   | 'other';
 

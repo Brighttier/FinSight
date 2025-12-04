@@ -16,6 +16,8 @@ const categories: { value: TransactionCategory; label: string; group: string }[]
   { value: 'travel', label: 'Travel & Meals', group: 'General' },
   { value: 'utilities', label: 'Utilities & Rent', group: 'Operational' },
   { value: 'legal', label: 'Legal & Professional', group: 'Operational' },
+  { value: 'taxes', label: 'Taxes', group: 'Operational' },
+  { value: 'reimbursements', label: 'Reimbursements', group: 'General' },
   { value: 'other', label: 'Other / Miscellaneous', group: 'General' },
 ];
 
