@@ -3,7 +3,7 @@ import { X, Loader2, CheckCircle, ArrowUpCircle, ArrowDownCircle, UploadCloud, F
 import { useTransactions } from '../hooks/useTransactions';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadReceipt, validateReceiptFile } from '../services/storageService';
-import type { TransactionCategory, TransactionInput } from '../types';
+import type { TransactionCategory, TransactionInput, PaymentStatus, PaymentTerms } from '../types';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -41,6 +41,11 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<TransactionCategory | ''>('');
   const [description, setDescription] = useState('');
+
+  // Payment tracking state (for cash flow)
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('paid');
+  const [paymentDate, setPaymentDate] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerms | ''>('');
 
   // Receipt state
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -80,6 +85,9 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
     setAmount('');
     setCategory('');
     setDescription('');
+    setPaymentStatus('paid');
+    setPaymentDate('');
+    setPaymentTerms('');
     setReceiptFile(null);
     setErrors({});
   };
@@ -155,6 +163,10 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
       type,
       status: 'posted',
       receiptUrl,
+      // Payment tracking fields for cash flow
+      paymentStatus,
+      paymentDate: paymentStatus === 'paid' ? (paymentDate || date) : undefined,
+      paymentTerms: paymentTerms || undefined,
     };
 
     const id = await addTransaction(transactionData);
@@ -349,6 +361,68 @@ export const QuickAddTransaction: React.FC<QuickAddTransactionProps> = ({ isOpen
                   <p className="text-red-500 text-xs mt-1">{errors.description}</p>
                 )}
               </div>
+
+              {/* Payment Tracking (Collapsible) */}
+              <details className="group">
+                <summary className="flex items-center justify-between cursor-pointer text-sm font-medium text-slate-600 hover:text-slate-800 py-2 border-t border-slate-100">
+                  <span>Payment Tracking (Cash Flow)</span>
+                  <span className="text-xs text-slate-400 group-open:hidden">Click to expand</span>
+                </summary>
+                <div className="pt-3 pb-1 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Payment Status
+                      </label>
+                      <select
+                        value={paymentStatus}
+                        onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      >
+                        <option value="paid">Paid</option>
+                        <option value="partial">Partial</option>
+                        <option value="unpaid">Unpaid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Payment Terms
+                      </label>
+                      <select
+                        value={paymentTerms}
+                        onChange={(e) => setPaymentTerms(e.target.value as PaymentTerms)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      >
+                        <option value="">Select...</option>
+                        <option value="immediate">Immediate</option>
+                        <option value="net_15">Net 15</option>
+                        <option value="net_30">Net 30</option>
+                        <option value="net_45">Net 45</option>
+                        <option value="net_60">Net 60</option>
+                        <option value="net_90">Net 90</option>
+                      </select>
+                    </div>
+                  </div>
+                  {paymentStatus === 'paid' && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Payment Date <span className="text-slate-400">(blank = transaction date)</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={paymentDate}
+                        onChange={(e) => setPaymentDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-400">
+                    {type === 'revenue'
+                      ? 'Track when customer pays for accurate cash flow reporting'
+                      : 'Track when payment is made for accurate cash flow reporting'}
+                  </p>
+                </div>
+              </details>
 
               {/* Receipt Upload */}
               <div>

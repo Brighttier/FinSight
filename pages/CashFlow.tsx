@@ -13,14 +13,16 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  CheckCircle,
+  X,
 } from 'lucide-react';
 import {
   useCashFlowStatement,
-  PAYMENT_STATUS_LABELS,
-  PAYMENT_STATUS_COLORS,
-  INVOICE_STATUS_LABELS,
-  INVOICE_STATUS_COLORS,
+  type AgingItem,
 } from '../hooks/useCashFlowStatement';
+import { useTransactions } from '../hooks/useTransactions';
+import { updateTimesheet } from '../services/firestoreService';
+import toast from 'react-hot-toast';
 import {
   format,
   startOfMonth,
@@ -57,6 +59,15 @@ const CashFlow = () => {
   const [dateRange, setDateRange] = useState<DateRange>('thisMonth');
   const [showARDetails, setShowARDetails] = useState(false);
   const [showAPDetails, setShowAPDetails] = useState(false);
+
+  // Mark as Paid modal state
+  const [markingPaidItem, setMarkingPaidItem] = useState<AgingItem | null>(null);
+  const [markingPaidType, setMarkingPaidType] = useState<'ar' | 'ap' | null>(null);
+  const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [isMarkingPaid, setIsMarkingPaid] = useState(false);
+
+  // Get editTransaction from useTransactions
+  const { editTransaction } = useTransactions({ realtime: false });
 
   // Calculate date range
   const { startDate, endDate, label } = useMemo(() => {
@@ -172,6 +183,59 @@ const CashFlow = () => {
     a.download = `cashflow-${label.replace(/\s+/g, '-').toLowerCase()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // Open Mark as Paid modal
+  const openMarkAsPaid = (item: AgingItem, type: 'ar' | 'ap') => {
+    setMarkingPaidItem(item);
+    setMarkingPaidType(type);
+    setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+  };
+
+  // Handle Mark as Paid
+  const handleMarkAsPaid = async () => {
+    if (!markingPaidItem || !markingPaidType) return;
+    setIsMarkingPaid(true);
+
+    try {
+      if (markingPaidItem.type === 'transaction') {
+        // Update transaction payment status
+        await editTransaction(markingPaidItem.id, {
+          paymentStatus: 'paid',
+          paymentDate: paymentDate,
+          amountPaid: markingPaidItem.amount,
+        });
+      } else if (markingPaidItem.type === 'timesheet') {
+        // Update timesheet - different fields for AR vs AP
+        if (markingPaidType === 'ar') {
+          // Customer paid us - update invoice status
+          await updateTimesheet(markingPaidItem.id, {
+            invoiceStatus: 'paid',
+            customerPaymentDate: paymentDate,
+            customerAmountPaid: markingPaidItem.amount,
+          });
+        } else {
+          // We paid contractor
+          await updateTimesheet(markingPaidItem.id, {
+            contractorPaymentStatus: 'paid',
+            contractorPaymentDate: paymentDate,
+          });
+        }
+      }
+
+      toast.success(
+        markingPaidType === 'ar'
+          ? 'Payment received recorded'
+          : 'Payment made recorded'
+      );
+      setMarkingPaidItem(null);
+      setMarkingPaidType(null);
+    } catch (err) {
+      console.error('Failed to record payment:', err);
+      toast.error('Failed to record payment');
+    } finally {
+      setIsMarkingPaid(false);
+    }
   };
 
   if (loading) {
@@ -524,6 +588,7 @@ const CashFlow = () => {
                       <th className="text-left py-2">Description</th>
                       <th className="text-right py-2">Days</th>
                       <th className="text-right py-2">Amount</th>
+                      <th className="text-right py-2">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -543,6 +608,14 @@ const CashFlow = () => {
                           </td>
                           <td className="text-right py-2 font-medium text-slate-900">
                             {formatCurrency(item.amount)}
+                          </td>
+                          <td className="text-right py-2">
+                            <button
+                              onClick={() => openMarkAsPaid(item, 'ar')}
+                              className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors"
+                            >
+                              Mark Paid
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -606,6 +679,7 @@ const CashFlow = () => {
                       <th className="text-left py-2">Description</th>
                       <th className="text-right py-2">Days</th>
                       <th className="text-right py-2">Amount</th>
+                      <th className="text-right py-2">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -625,6 +699,14 @@ const CashFlow = () => {
                           </td>
                           <td className="text-right py-2 font-medium text-slate-900">
                             {formatCurrency(item.amount)}
+                          </td>
+                          <td className="text-right py-2">
+                            <button
+                              onClick={() => openMarkAsPaid(item, 'ap')}
+                              className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                            >
+                              Mark Paid
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -692,6 +774,88 @@ const CashFlow = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Mark as Paid Modal */}
+      {markingPaidItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">
+                Record Payment {markingPaidType === 'ar' ? 'Received' : 'Made'}
+              </h3>
+              <button
+                onClick={() => {
+                  setMarkingPaidItem(null);
+                  setMarkingPaidType(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-slate-500">Description</label>
+                <p className="font-medium text-slate-900">{markingPaidItem.description}</p>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-500">Amount</label>
+                <p className="font-bold text-lg text-slate-900">{formatCurrency(markingPaidItem.amount)}</p>
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-500">Outstanding</label>
+                <p className="text-sm text-slate-600">{markingPaidItem.daysOutstanding} days</p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-slate-700">Payment Date</label>
+                <input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setMarkingPaidItem(null);
+                  setMarkingPaidType(null);
+                }}
+                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMarkAsPaid}
+                disabled={isMarkingPaid}
+                className={`flex-1 px-4 py-2 rounded-lg font-medium text-white transition-colors flex items-center justify-center gap-2 ${
+                  markingPaidType === 'ar'
+                    ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
+                    : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'
+                }`}
+              >
+                {isMarkingPaid ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle size={16} />
+                    Confirm Payment
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
