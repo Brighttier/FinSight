@@ -8,6 +8,7 @@ export type UserRole = 'owner' | 'admin' | 'manager' | 'employee' | 'viewer';
 export type AppModule =
   | 'dashboard'
   | 'pnl'
+  | 'cashflow'
   | 'transactions'
   | 'subscriptions'
   | 'contractors'
@@ -30,6 +31,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, ModulePermissions> = {
   owner: {
     dashboard: 'full',
     pnl: 'full',
+    cashflow: 'full',
     transactions: 'full',
     subscriptions: 'full',
     contractors: 'full',
@@ -44,6 +46,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, ModulePermissions> = {
   admin: {
     dashboard: 'full',
     pnl: 'full',
+    cashflow: 'full',
     transactions: 'full',
     subscriptions: 'full',
     contractors: 'full',
@@ -58,6 +61,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, ModulePermissions> = {
   manager: {
     dashboard: 'view',
     pnl: 'view',
+    cashflow: 'view',
     transactions: 'edit',
     subscriptions: 'edit',
     contractors: 'full',
@@ -72,6 +76,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, ModulePermissions> = {
   employee: {
     dashboard: 'view',
     pnl: 'none',
+    cashflow: 'none',
     transactions: 'view',
     subscriptions: 'view',
     contractors: 'edit',
@@ -86,6 +91,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, ModulePermissions> = {
   viewer: {
     dashboard: 'view',
     pnl: 'view',
+    cashflow: 'view',
     transactions: 'view',
     subscriptions: 'view',
     contractors: 'view',
@@ -103,6 +109,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, ModulePermissions> = {
 export const MODULE_INFO: Record<AppModule, { label: string; description: string }> = {
   dashboard: { label: 'Dashboard', description: 'View main dashboard and KPIs' },
   pnl: { label: 'P&L', description: 'Profit & Loss statements' },
+  cashflow: { label: 'Cash Flow', description: 'Cash flow statement and tracking' },
   transactions: { label: 'Transactions', description: 'Manage income and expenses' },
   subscriptions: { label: 'Subscriptions', description: 'Track SaaS subscriptions' },
   contractors: { label: 'Contractors', description: 'Manage contractors and timesheets' },
@@ -218,10 +225,13 @@ export type TransactionCategory =
   | 'reimbursements'
   | 'other';
 
+export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
+export type PaymentTerms = 'immediate' | 'net_15' | 'net_30' | 'net_45' | 'net_60' | 'net_90';
+
 export interface Transaction {
   id: string;
   userId: string;
-  date: string; // ISO String
+  date: string; // ISO String - Invoice/transaction date (accrual basis)
   description: string;
   category: TransactionCategory;
   amount: number;
@@ -229,6 +239,13 @@ export interface Transaction {
   status: 'draft' | 'posted';
   receiptUrl?: string;
   notes?: string;
+  // Payment tracking for cash basis accounting
+  paymentStatus?: PaymentStatus;
+  paymentDate?: string; // ISO date when payment was received/made
+  paymentTerms?: PaymentTerms;
+  amountPaid?: number; // For partial payments
+  expectedPaymentDate?: string; // Calculated from date + terms
+  paymentReference?: string; // Check number, wire reference, etc.
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -360,6 +377,8 @@ export interface ContractorAssignment {
   updatedAt?: Date;
 }
 
+export type InvoiceStatus = 'not_invoiced' | 'invoiced' | 'paid' | 'partial';
+
 export interface ContractorTimesheet {
   id: string;
   userId: string;
@@ -384,6 +403,15 @@ export interface ContractorTimesheet {
   externalRevenue: number; // In USD
   profit: number; // In USD (externalRevenue - internalCostUSD)
   status: 'draft' | 'submitted' | 'approved';
+  // Customer invoice payment tracking (money IN)
+  invoiceStatus?: InvoiceStatus;
+  invoiceNumber?: string;
+  invoiceDate?: string; // ISO date when invoice was sent
+  customerPaymentDate?: string; // ISO date when customer paid
+  customerAmountPaid?: number; // For partial payments
+  // Contractor payment tracking (money OUT)
+  contractorPaymentStatus?: 'unpaid' | 'paid';
+  contractorPaymentDate?: string; // ISO date when contractor was paid
   createdAt?: Date;
   updatedAt?: Date;
 }

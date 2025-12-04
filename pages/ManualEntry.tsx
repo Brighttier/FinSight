@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/Card';
 import { UploadCloud, CheckCircle, Save, Loader2, Trash2, Edit2, X, Plus, ArrowUpCircle, ArrowDownCircle, Search } from 'lucide-react';
 import { useTransactions } from '../hooks/useTransactions';
-import type { TransactionCategory, TransactionInput, Transaction } from '../types';
+import type { TransactionCategory, TransactionInput, Transaction, PaymentStatus, PaymentTerms } from '../types';
 import { format, startOfMonth, endOfMonth, subMonths, isWithinInterval, parseISO } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -47,6 +47,11 @@ const ManualEntry = () => {
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<'draft' | 'posted'>('posted');
 
+  // Payment tracking fields (for cash flow)
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('paid');
+  const [paymentDate, setPaymentDate] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerms | ''>('');
+
   // Validation state
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -82,6 +87,9 @@ const ManualEntry = () => {
     setCategory('');
     setDescription('');
     setStatus('posted');
+    setPaymentStatus('paid');
+    setPaymentDate('');
+    setPaymentTerms('');
     setErrors({});
     setEditingId(null);
   };
@@ -94,6 +102,9 @@ const ManualEntry = () => {
     setCategory(transaction.category);
     setDescription(transaction.description);
     setStatus(transaction.status);
+    setPaymentStatus(transaction.paymentStatus || 'paid');
+    setPaymentDate(transaction.paymentDate?.split('T')[0] || '');
+    setPaymentTerms(transaction.paymentTerms || '');
     setShowForm(true);
     setErrors({});
   };
@@ -137,6 +148,10 @@ const ManualEntry = () => {
       description: description.trim(),
       type,
       status,
+      // Payment tracking fields for cash flow
+      paymentStatus,
+      paymentDate: paymentStatus === 'paid' ? (paymentDate || date) : undefined,
+      paymentTerms: paymentTerms || undefined,
     };
 
     let success = false;
@@ -457,6 +472,59 @@ const ManualEntry = () => {
                 required
               />
               {errors.description && <p className="text-xs text-red-500">{errors.description}</p>}
+            </div>
+
+            {/* Payment Tracking Section */}
+            <div className="border-t border-slate-200 pt-6">
+              <h4 className="text-sm font-semibold text-slate-700 mb-4">Payment Tracking (Cash Flow)</h4>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Payment Status</label>
+                  <select
+                    value={paymentStatus}
+                    onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="paid">Paid</option>
+                    <option value="partial">Partial</option>
+                    <option value="unpaid">Unpaid</option>
+                  </select>
+                  <p className="text-xs text-slate-400">
+                    {type === 'revenue' ? 'Has customer paid?' : 'Has vendor been paid?'}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Payment Terms</label>
+                  <select
+                    value={paymentTerms}
+                    onChange={(e) => setPaymentTerms(e.target.value as PaymentTerms)}
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Select terms...</option>
+                    <option value="immediate">Immediate</option>
+                    <option value="net_15">Net 15</option>
+                    <option value="net_30">Net 30</option>
+                    <option value="net_45">Net 45</option>
+                    <option value="net_60">Net 60</option>
+                    <option value="net_90">Net 90</option>
+                  </select>
+                </div>
+
+                {paymentStatus === 'paid' && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Payment Date</label>
+                    <input
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="When was payment received?"
+                    />
+                    <p className="text-xs text-slate-400">Leave blank to use transaction date</p>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Receipt Upload - Placeholder */}

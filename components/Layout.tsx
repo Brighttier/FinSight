@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Lock,
   List,
+  Banknote,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserManagement } from '../hooks/useUserManagement';
@@ -116,6 +117,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
             <SidebarItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" disabled={!hasAccess('dashboard')} />
             <SidebarItem to="/pnl" icon={PieChart} label="P&L Statement" disabled={!hasAccess('pnl')} />
+            <SidebarItem to="/cashflow" icon={Banknote} label="Cash Flow" disabled={!hasAccess('cashflow')} />
             <SidebarItem to="/forecast" icon={TrendingUp} label="Forecasting" disabled={!hasAccess('forecast')} />
 
             <div className="px-3 mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-400">

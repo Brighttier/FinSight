@@ -19,6 +19,7 @@ import Team from './pages/Team';
 import Recruitment from './pages/Recruitment';
 import CRM from './pages/CRM';
 import UserManagement from './pages/UserManagement';
+import CashFlow from './pages/CashFlow';
 
 const App: React.FC = () => {
   return (
@@ -38,6 +39,7 @@ const App: React.FC = () => {
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/pnl" element={<PnL />} />
+                    <Route path="/cashflow" element={<CashFlow />} />
                     <Route path="/costs/new" element={<ManualEntry />} />
                     <Route path="/forecast" element={<Forecast />} />
                     <Route path="/subscriptions" element={<Subscriptions />} />
